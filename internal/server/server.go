@@ -49,27 +49,39 @@ func (a *App) Handler() http.Handler {
 
 	r.Mount("/api", api.NewRouter(a.cfg, a.logger, a.build, a.options.Store, a.options.Registry))
 
-	var downstream http.Handler
+	// UI is served under /_ui. In dev mode the Vite server already knows the
+	// base path, so we proxy the full path unchanged. In production the dist
+	// files sit at the FS root, so we strip the /_ui prefix before serving.
 	if a.options.DevMode && strings.TrimSpace(a.cfg.UI.DevProxyURL) != "" {
-		downstream = newDevProxy(a.cfg.UI.DevProxyURL, a.logger)
+		proxy := newDevProxy(a.cfg.UI.DevProxyURL, a.logger)
+		r.Get("/_ui", func(w http.ResponseWriter, req *http.Request) {
+			http.Redirect(w, req, "/_ui/", http.StatusMovedPermanently)
+		})
+		r.Handle("/_ui/*", proxy)
 	} else {
 		distFS, err := fs.Sub(a.options.UIFS, "ui/dist")
+		var spaH http.Handler
 		if err != nil {
 			a.logger.Error("embedded ui not available", "error", err)
-			downstream = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			spaH = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				http.Error(w, "embedded UI missing; run `make build-ui` before building the binary", http.StatusServiceUnavailable)
 			})
 		} else {
-			downstream = newSPAHandler(distFS)
+			spaH = newSPAHandler(distFS)
 		}
+		r.Get("/_ui", func(w http.ResponseWriter, req *http.Request) {
+			http.Redirect(w, req, "/_ui/", http.StatusMovedPermanently)
+		})
+		r.Handle("/_ui/*", http.StripPrefix("/_ui", spaH))
 	}
 
+	// Dynamic spec routes — everything that isn't /api or /_ui.
 	reg := a.options.Registry
 	r.Handle("/*", http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
 		if reg != nil && reg.TryServe(w, req) {
 			return
 		}
-		downstream.ServeHTTP(w, req)
+		http.NotFound(w, req)
 	}))
 
 	return r
