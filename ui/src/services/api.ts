@@ -1,6 +1,6 @@
 import type { Flow, MetaResponse, SpecDetail, SpecMeta, Template } from '../types'
 
-const BASE = import.meta.env.VITE_API_BASE || '/api'
+const BASE = import.meta.env.VITE_API_BASE || '/_api'
 
 async function handle<T>(res: Response): Promise<T> {
   if (!res.ok) {

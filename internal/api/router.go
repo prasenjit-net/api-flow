@@ -20,7 +20,6 @@ func NewRouter(cfg config.Config, logger *slog.Logger, build version.Info, s sto
 
 	h := NewHandler(cfg, build, s, reg)
 
-	r.Get("/health", h.Health)
 	r.Get("/meta", h.Meta)
 
 	r.Route("/specs", func(r chi.Router) {

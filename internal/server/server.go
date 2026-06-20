@@ -44,10 +44,10 @@ func (a *App) Handler() http.Handler {
 	r.Use(middleware.RequestID)
 	r.Use(middleware.RealIP)
 	r.Use(middleware.Recoverer)
-	r.Use(middleware.Heartbeat("/livez"))
+	r.Use(middleware.Heartbeat("/_health"))
 	r.Use(requestLogger(a.logger))
 
-	r.Mount("/api", api.NewRouter(a.cfg, a.logger, a.build, a.options.Store, a.options.Registry))
+	r.Mount("/_api", api.NewRouter(a.cfg, a.logger, a.build, a.options.Store, a.options.Registry))
 
 	// UI is served under /_ui. In dev mode the Vite server already knows the
 	// base path, so we proxy the full path unchanged. In production the dist

@@ -3,7 +3,6 @@ package api
 import (
 	"encoding/json"
 	"net/http"
-	"time"
 
 	"github.com/prasenjit-net/api-flow/internal/config"
 	"github.com/prasenjit-net/api-flow/internal/registry"
@@ -18,14 +17,6 @@ type Handler struct {
 	registry *registry.Registry
 }
 
-type healthResponse struct {
-	Status  string       `json:"status"`
-	Service string       `json:"service"`
-	Env     string       `json:"env"`
-	Time    time.Time    `json:"time"`
-	Version version.Info `json:"version"`
-}
-
 type metaResponse struct {
 	Name        string       `json:"name"`
 	Description string       `json:"description"`
@@ -37,16 +28,6 @@ type metaResponse struct {
 
 func NewHandler(cfg config.Config, build version.Info, s store.Store, reg *registry.Registry) *Handler {
 	return &Handler{config: cfg, version: build, store: s, registry: reg}
-}
-
-func (h *Handler) Health(w http.ResponseWriter, r *http.Request) {
-	respondJSON(w, http.StatusOK, healthResponse{
-		Status:  "ok",
-		Service: h.config.App.Name,
-		Env:     h.config.App.Env,
-		Time:    time.Now().UTC(),
-		Version: h.version,
-	})
 }
 
 func (h *Handler) Meta(w http.ResponseWriter, r *http.Request) {

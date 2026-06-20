@@ -12,9 +12,9 @@ import (
 	"github.com/prasenjit-net/api-flow/internal/version"
 )
 
-func TestHealthEndpoint(t *testing.T) {
+func TestMetaEndpoint(t *testing.T) {
 	router := NewRouter(config.Default(), slog.New(slog.NewTextHandler(io.Discard, nil)), version.Current(), nil, nil)
-	req := httptest.NewRequest(http.MethodGet, "/health", nil)
+	req := httptest.NewRequest(http.MethodGet, "/meta", nil)
 	res := httptest.NewRecorder()
 
 	router.ServeHTTP(res, req)
@@ -22,7 +22,7 @@ func TestHealthEndpoint(t *testing.T) {
 	if res.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d", res.Code)
 	}
-	if !strings.Contains(res.Body.String(), `"status":"ok"`) {
-		t.Fatalf("expected ok payload, got %s", res.Body.String())
+	if !strings.Contains(res.Body.String(), `"name"`) {
+		t.Fatalf("expected meta payload, got %s", res.Body.String())
 	}
 }
