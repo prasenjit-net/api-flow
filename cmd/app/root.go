@@ -11,16 +11,16 @@ import (
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
 
-	"github.com/your-org/go-app-template/internal/config"
+	"github.com/prasenjit-net/api-flow/internal/config"
 )
 
 var (
 	cfgFile string
 	uiFS    fs.FS
 	rootCmd = &cobra.Command{
-		Use:   "go-app-template",
-		Short: "Go + React starter with an embedded frontend",
-		Long:  "A production-ready template for shipping a Go API and React frontend as a single binary.",
+		Use:   "api-flow",
+		Short: "API flow visualization and management tool",
+		Long:  "API Flow — visualize and manage your API workflows as a single binary with an embedded React UI.",
 	}
 )
 

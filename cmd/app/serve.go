@@ -11,10 +11,10 @@ import (
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
 
-	"github.com/your-org/go-app-template/internal/config"
-	"github.com/your-org/go-app-template/internal/logging"
-	"github.com/your-org/go-app-template/internal/server"
-	"github.com/your-org/go-app-template/internal/version"
+	"github.com/prasenjit-net/api-flow/internal/config"
+	"github.com/prasenjit-net/api-flow/internal/logging"
+	"github.com/prasenjit-net/api-flow/internal/server"
+	"github.com/prasenjit-net/api-flow/internal/version"
 )
 
 var (

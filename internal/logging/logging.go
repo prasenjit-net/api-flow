@@ -5,7 +5,7 @@ import (
 	"os"
 	"strings"
 
-	"github.com/your-org/go-app-template/internal/config"
+	"github.com/prasenjit-net/api-flow/internal/config"
 )
 
 func New(cfg config.LoggingConfig) *slog.Logger {

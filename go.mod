@@ -1,4 +1,4 @@
-module github.com/your-org/go-app-template
+module github.com/prasenjit-net/api-flow
 
 go 1.23.0
 

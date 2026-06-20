@@ -8,8 +8,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/your-org/go-app-template/internal/config"
-	"github.com/your-org/go-app-template/internal/version"
+	"github.com/prasenjit-net/api-flow/internal/config"
+	"github.com/prasenjit-net/api-flow/internal/version"
 )
 
 func TestHealthEndpoint(t *testing.T) {

@@ -5,8 +5,8 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/your-org/go-app-template/internal/config"
-	"github.com/your-org/go-app-template/internal/version"
+	"github.com/prasenjit-net/api-flow/internal/config"
+	"github.com/prasenjit-net/api-flow/internal/version"
 )
 
 type Handler struct {
