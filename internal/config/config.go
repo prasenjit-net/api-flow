@@ -15,6 +15,11 @@ type Config struct {
 	Server  ServerConfig  `mapstructure:"server" yaml:"server"`
 	Logging LoggingConfig `mapstructure:"logging" yaml:"logging"`
 	UI      UIConfig      `mapstructure:"ui" yaml:"ui"`
+	Data    DataConfig    `mapstructure:"data" yaml:"data"`
+}
+
+type DataConfig struct {
+	Dir string `mapstructure:"dir" yaml:"dir"`
 }
 
 type AppConfig struct {
@@ -65,6 +70,9 @@ func Default() Config {
 		UI: UIConfig{
 			DevProxyURL: "http://localhost:5173",
 		},
+		Data: DataConfig{
+			Dir: "data",
+		},
 	}
 }
 
@@ -92,6 +100,7 @@ func SetDefaults(v *viper.Viper) {
 	v.SetDefault("logging.level", defaults.Logging.Level)
 	v.SetDefault("logging.format", defaults.Logging.Format)
 	v.SetDefault("ui.devProxyURL", defaults.UI.DevProxyURL)
+	v.SetDefault("data.dir", defaults.Data.Dir)
 }
 
 func Load(v *viper.Viper) (Config, error) {

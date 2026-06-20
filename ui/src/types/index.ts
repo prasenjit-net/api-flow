@@ -1,23 +1,63 @@
-export interface HealthResponse {
-  status: string
-  service: string
-  env: string
-  time: string
-  version: {
-    version: string
-    commit: string
-    buildDate: string
-  }
-  documents: string[]
+export interface SpecMeta {
+  id: string
+  name: string
+  contextPath: string
+  uploadedAt: string
 }
 
-export interface ExampleResponse {
-  title: string
+export interface Operation {
+  id: string
+  method: string
+  path: string
   summary: string
-  features: string[]
-  quickstart: string[]
-  repository: string
-  frontendDir: string
+  description: string
+  hasFlow: boolean
+}
+
+export interface SpecDetail extends SpecMeta {
+  operations: Operation[]
+}
+
+export interface Template {
+  id: string
+  name: string
+  statusCode: number
+  body: string
+  headers: Record<string, string>
+  createdAt: string
+  updatedAt: string
+}
+
+export interface Mapping {
+  source: string
+  key: string
+}
+
+export interface NodeData {
+  mappings?: Mapping[]
+  templateId?: string
+}
+
+export type NodeType = 'start' | 'contextMapper' | 'template' | 'end'
+
+export interface FlowNode {
+  id: string
+  type: NodeType
+  position: { x: number; y: number }
+  data: NodeData
+}
+
+export interface FlowEdge {
+  id: string
+  source: string
+  target: string
+}
+
+export interface Flow {
+  specId: string
+  operationId: string
+  nodes: FlowNode[]
+  edges: FlowEdge[]
 }
 
 export interface MetaResponse {
@@ -26,9 +66,5 @@ export interface MetaResponse {
   environment: string
   url: string
   uiProxy: string
-  version: {
-    version: string
-    commit: string
-    buildDate: string
-  }
+  version: { version: string; commit: string; buildDate: string }
 }

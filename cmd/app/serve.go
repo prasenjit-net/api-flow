@@ -12,8 +12,11 @@ import (
 	"github.com/spf13/viper"
 
 	"github.com/prasenjit-net/api-flow/internal/config"
+	"github.com/prasenjit-net/api-flow/internal/executor"
 	"github.com/prasenjit-net/api-flow/internal/logging"
+	"github.com/prasenjit-net/api-flow/internal/registry"
 	"github.com/prasenjit-net/api-flow/internal/server"
+	"github.com/prasenjit-net/api-flow/internal/store"
 	"github.com/prasenjit-net/api-flow/internal/version"
 )
 
@@ -46,9 +49,20 @@ func runServe(cmd *cobra.Command, args []string) error {
 	logger := logging.New(cfg.Logging)
 	buildInfo := version.Current()
 
+	fileStore, err := store.New(cfg.Data.Dir)
+	if err != nil {
+		return fmt.Errorf("init store: %w", err)
+	}
+
+	exec := executor.New(fileStore)
+	reg := registry.New(fileStore, exec)
+	reg.LoadFromStore()
+
 	appServer, err := server.New(cfg, logger, buildInfo, server.Options{
-		DevMode: devMode,
-		UIFS:    uiFS,
+		DevMode:  devMode,
+		UIFS:     uiFS,
+		Store:    fileStore,
+		Registry: reg,
 	})
 	if err != nil {
 		return err

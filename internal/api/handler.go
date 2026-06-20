@@ -6,30 +6,24 @@ import (
 	"time"
 
 	"github.com/prasenjit-net/api-flow/internal/config"
+	"github.com/prasenjit-net/api-flow/internal/registry"
+	"github.com/prasenjit-net/api-flow/internal/store"
 	"github.com/prasenjit-net/api-flow/internal/version"
 )
 
 type Handler struct {
-	config  config.Config
-	version version.Info
+	config   config.Config
+	version  version.Info
+	store    store.Store
+	registry *registry.Registry
 }
 
 type healthResponse struct {
-	Status    string       `json:"status"`
-	Service   string       `json:"service"`
-	Env       string       `json:"env"`
-	Time      time.Time    `json:"time"`
-	Version   version.Info `json:"version"`
-	Documents []string     `json:"documents"`
-}
-
-type exampleResponse struct {
-	Title       string   `json:"title"`
-	Summary     string   `json:"summary"`
-	Features    []string `json:"features"`
-	Quickstart  []string `json:"quickstart"`
-	Repository  string   `json:"repository"`
-	FrontendDir string   `json:"frontendDir"`
+	Status  string       `json:"status"`
+	Service string       `json:"service"`
+	Env     string       `json:"env"`
+	Time    time.Time    `json:"time"`
+	Version version.Info `json:"version"`
 }
 
 type metaResponse struct {
@@ -41,8 +35,8 @@ type metaResponse struct {
 	Version     version.Info `json:"version"`
 }
 
-func NewHandler(cfg config.Config, build version.Info) *Handler {
-	return &Handler{config: cfg, version: build}
+func NewHandler(cfg config.Config, build version.Info, s store.Store, reg *registry.Registry) *Handler {
+	return &Handler{config: cfg, version: build, store: s, registry: reg}
 }
 
 func (h *Handler) Health(w http.ResponseWriter, r *http.Request) {
@@ -52,22 +46,6 @@ func (h *Handler) Health(w http.ResponseWriter, r *http.Request) {
 		Env:     h.config.App.Env,
 		Time:    time.Now().UTC(),
 		Version: h.version,
-		Documents: []string{
-			"README.md",
-			"config.yaml",
-			"ui/src/pages",
-		},
-	})
-}
-
-func (h *Handler) Example(w http.ResponseWriter, r *http.Request) {
-	respondJSON(w, http.StatusOK, exampleResponse{
-		Title:       "Go + React starter template",
-		Summary:     "Embed a Vite-generated React application directly into the Go binary with one production build.",
-		Features:    []string{"Cobra CLI commands", "Viper config + .env support", "Chi API router", "Embedded SPA serving", "React Query + Tailwind UI"},
-		Quickstart:  []string{"make install-deps", "make dev-all", "make build", "./build/<binary> serve"},
-		Repository:  "Template repository",
-		FrontendDir: "ui",
 	})
 }
 
@@ -86,4 +64,8 @@ func respondJSON(w http.ResponseWriter, status int, payload any) {
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
 	w.WriteHeader(status)
 	_ = json.NewEncoder(w).Encode(payload)
+}
+
+func respondError(w http.ResponseWriter, status int, msg string) {
+	respondJSON(w, status, map[string]string{"error": msg})
 }

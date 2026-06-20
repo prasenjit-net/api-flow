@@ -16,12 +16,16 @@ import (
 
 	"github.com/prasenjit-net/api-flow/internal/api"
 	"github.com/prasenjit-net/api-flow/internal/config"
+	"github.com/prasenjit-net/api-flow/internal/registry"
+	"github.com/prasenjit-net/api-flow/internal/store"
 	"github.com/prasenjit-net/api-flow/internal/version"
 )
 
 type Options struct {
-	DevMode bool
-	UIFS    fs.FS
+	DevMode  bool
+	UIFS     fs.FS
+	Store    store.Store
+	Registry *registry.Registry
 }
 
 type App struct {
@@ -43,24 +47,30 @@ func (a *App) Handler() http.Handler {
 	r.Use(middleware.Heartbeat("/livez"))
 	r.Use(requestLogger(a.logger))
 
-	r.Mount("/api", api.NewRouter(a.cfg, a.logger, a.build))
+	r.Mount("/api", api.NewRouter(a.cfg, a.logger, a.build, a.options.Store, a.options.Registry))
 
+	var downstream http.Handler
 	if a.options.DevMode && strings.TrimSpace(a.cfg.UI.DevProxyURL) != "" {
-		r.Handle("/*", newDevProxy(a.cfg.UI.DevProxyURL, a.logger))
-		return r
+		downstream = newDevProxy(a.cfg.UI.DevProxyURL, a.logger)
+	} else {
+		distFS, err := fs.Sub(a.options.UIFS, "ui/dist")
+		if err != nil {
+			a.logger.Error("embedded ui not available", "error", err)
+			downstream = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				http.Error(w, "embedded UI missing; run `make build-ui` before building the binary", http.StatusServiceUnavailable)
+			})
+		} else {
+			downstream = newSPAHandler(distFS)
+		}
 	}
 
-	distFS, err := fs.Sub(a.options.UIFS, "ui/dist")
-	if err != nil {
-		a.logger.Error("embedded ui not available", "error", err)
-		r.Get("/*", func(w http.ResponseWriter, r *http.Request) {
-			http.Error(w, "embedded UI missing; run `make build-ui` before building the binary", http.StatusServiceUnavailable)
-		})
-		return r
-	}
-
-	spa := newSPAHandler(distFS)
-	r.Handle("/*", spa)
+	reg := a.options.Registry
+	r.Handle("/*", http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+		if reg != nil && reg.TryServe(w, req) {
+			return
+		}
+		downstream.ServeHTTP(w, req)
+	}))
 
 	return r
 }
@@ -118,12 +128,10 @@ func fileExists(fsys fs.FS, name string) bool {
 		return false
 	}
 	defer file.Close()
-
 	info, err := file.Stat()
 	if err != nil {
 		return false
 	}
-
 	return !info.IsDir()
 }
 
