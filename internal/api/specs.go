@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"sort"
 	"strings"
 	"time"
 
@@ -18,6 +19,16 @@ import (
 type specDetailResponse struct {
 	domain.SpecMeta
 	Operations []domain.Operation `json:"operations"`
+}
+
+var operationMethodOrder = map[string]int{
+	http.MethodGet:     0,
+	http.MethodPost:    1,
+	http.MethodPut:     2,
+	http.MethodHead:    3,
+	"OPTION":           4,
+	http.MethodOptions: 4,
+	http.MethodDelete:  5,
 }
 
 func (h *Handler) ListSpecs(w http.ResponseWriter, r *http.Request) {
@@ -166,6 +177,23 @@ func (h *Handler) parseOperations(specID string) ([]domain.Operation, error) {
 			})
 		}
 	}
+	sort.Slice(ops, func(i, j int) bool {
+		leftOrder, leftKnown := operationMethodOrder[ops[i].Method]
+		rightOrder, rightKnown := operationMethodOrder[ops[j].Method]
+		if leftKnown != rightKnown {
+			return leftKnown
+		}
+		if leftKnown && leftOrder != rightOrder {
+			return leftOrder < rightOrder
+		}
+		if ops[i].Method != ops[j].Method {
+			return ops[i].Method < ops[j].Method
+		}
+		if ops[i].Path != ops[j].Path {
+			return ops[i].Path < ops[j].Path
+		}
+		return ops[i].ID < ops[j].ID
+	})
 	return ops, nil
 }
 
