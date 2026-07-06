@@ -55,7 +55,7 @@ func (a *App) Handler() http.Handler {
 	if a.options.DevMode && strings.TrimSpace(a.cfg.UI.DevProxyURL) != "" {
 		proxy := newDevProxy(a.cfg.UI.DevProxyURL, a.logger)
 		r.Get("/_ui", func(w http.ResponseWriter, req *http.Request) {
-			http.Redirect(w, req, "/_ui/", http.StatusMovedPermanently)
+			http.Redirect(w, req, "/_ui/", http.StatusTemporaryRedirect)
 		})
 		r.Handle("/_ui/*", proxy)
 	} else {
@@ -70,7 +70,7 @@ func (a *App) Handler() http.Handler {
 			spaH = newSPAHandler(distFS)
 		}
 		r.Get("/_ui", func(w http.ResponseWriter, req *http.Request) {
-			http.Redirect(w, req, "/_ui/", http.StatusMovedPermanently)
+			http.Redirect(w, req, "/_ui/", http.StatusTemporaryRedirect)
 		})
 		r.Handle("/_ui/*", http.StripPrefix("/_ui", spaH))
 	}
@@ -129,9 +129,16 @@ func (h *spaHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	indexReq := r.Clone(r.Context())
-	indexReq.URL.Path = "/index.html"
-	h.fileServer.ServeHTTP(w, indexReq)
+	// Serve index.html directly — don't use the fileServer with path
+	// "/index.html" because http.FileServer redirects that to "./" which
+	// breaks deep-link refreshes (e.g. /_ui/templates → /_ui/).
+	content, err := fs.ReadFile(h.fsys, "index.html")
+	if err != nil {
+		http.Error(w, "index.html not found", http.StatusInternalServerError)
+		return
+	}
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	_, _ = w.Write(content)
 }
 
 func fileExists(fsys fs.FS, name string) bool {
