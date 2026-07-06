@@ -281,6 +281,10 @@ func contextNodes(context map[string]any) map[string]any {
 func buildNodeInput(node domain.Node, context map[string]any) map[string]any {
 	input := make(map[string]any, len(node.Data.Mappings))
 	for _, mapping := range node.Data.Mappings {
+		if mapping.Type == "constant" {
+			input[mapping.Key] = mapping.Value
+			continue
+		}
 		value, exists := ResolveContextPath(context, mapping.Source)
 		if !exists {
 			value = nil
@@ -299,6 +303,10 @@ func buildTemplateContext(node domain.Node, context map[string]any) map[string]a
 		view[key] = value
 	}
 	for _, mapping := range node.Data.Mappings {
+		if mapping.Type == "constant" {
+			view[mapping.Key] = mapping.Value
+			continue
+		}
 		value, exists := ResolveContextPath(context, mapping.Source)
 		if !exists {
 			value = nil

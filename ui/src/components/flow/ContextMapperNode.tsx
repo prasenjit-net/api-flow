@@ -33,7 +33,9 @@ export default function ContextMapperNode({ data, selected }: Props) {
             <div className="mt-1.5 space-y-1">
               {mappings.slice(0, 3).map((m, i) => (
                 <div key={i} className="flex min-w-0 items-center gap-1.5 text-[11px]">
-                  <code className="max-w-[82px] truncate text-slate-500 dark:text-slate-400">{m.source}</code>
+                  <code className="max-w-[82px] truncate text-slate-500 dark:text-slate-400">
+                    {(m.type ?? 'context') === 'constant' ? JSON.stringify(m.value ?? null) : m.source}
+                  </code>
                   <span className="text-slate-300 dark:text-slate-600">→</span>
                   <code className="truncate font-medium text-slate-700 dark:text-slate-300">{m.key}</code>
                 </div>

@@ -1,6 +1,8 @@
 import { useState } from 'react'
-import { Plus, Trash2, X } from 'lucide-react'
+import { X } from 'lucide-react'
 import type { Mapping, Script } from '../../types'
+import MappingRows from './MappingRows'
+import { emptyMapping, isCompleteMapping } from './mappingUtils'
 
 interface Props {
   name: string
@@ -21,12 +23,8 @@ export default function StarlarkNodeModal({
 }: Props) {
   const [name, setName] = useState(initialName)
   const [scriptId, setScriptId] = useState(initialScriptId)
-  const [mappings, setMappings] = useState<Mapping[]>(initialMappings.length > 0 ? initialMappings : [{ source: '', key: '' }])
+  const [mappings, setMappings] = useState<Mapping[]>(initialMappings.length > 0 ? initialMappings : [emptyMapping()])
   const script = scripts.find(candidate => candidate.id === scriptId)
-
-  function updateMapping(index: number, field: keyof Mapping, value: string) {
-    setMappings(current => current.map((mapping, i) => i === index ? { ...mapping, [field]: value } : mapping))
-  }
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/30 p-4 backdrop-blur-[2px]">
@@ -58,21 +56,7 @@ export default function StarlarkNodeModal({
 
           <div>
             <p className="mb-2 text-xs font-medium text-slate-600 dark:text-slate-400">Mapped inputs</p>
-            <div className="space-y-2">
-              {mappings.map((mapping, index) => (
-                <div key={index} className="grid grid-cols-[1fr_auto_1fr_auto] items-center gap-2">
-                  <input value={mapping.source} onChange={event => updateMapping(index, 'source', event.target.value)} placeholder="request.body.amount" className="rounded border border-slate-200 bg-slate-50 px-2.5 py-1.5 font-mono text-xs text-slate-800 focus:border-blue-400 focus:outline-none dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200" />
-                  <span className="text-xs text-slate-300">→</span>
-                  <input value={mapping.key} onChange={event => updateMapping(index, 'key', event.target.value)} placeholder="amount" className="rounded border border-slate-200 bg-slate-50 px-2.5 py-1.5 font-mono text-xs text-slate-800 focus:border-blue-400 focus:outline-none dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200" />
-                  <button type="button" onClick={() => setMappings(current => current.filter((_, i) => i !== index))} className="rounded p-1 text-slate-300 hover:bg-red-50 hover:text-red-400 dark:text-slate-600">
-                    <Trash2 className="h-3.5 w-3.5" />
-                  </button>
-                </div>
-              ))}
-            </div>
-            <button type="button" onClick={() => setMappings(current => [...current, { source: '', key: '' }])} className="mt-3 flex w-full items-center justify-center gap-1.5 rounded border border-dashed border-slate-300 py-1.5 text-xs text-slate-400 hover:border-blue-300 hover:text-blue-500 dark:border-slate-700">
-              <Plus className="h-3 w-3" /> Add input
-            </button>
+            <MappingRows mappings={mappings} onChange={setMappings} sourceLabel="Source path / value" sourcePlaceholder="request.body.amount" keyPlaceholder="amount" addLabel="Add input" />
           </div>
 
           {script && <pre className="max-h-40 overflow-hidden rounded border border-slate-200 bg-slate-50 p-3 font-mono text-[11px] leading-relaxed text-slate-500 dark:border-slate-700 dark:bg-slate-800/60 dark:text-slate-400">{script.source.slice(0, 600)}{script.source.length > 600 ? '…' : ''}</pre>}
@@ -85,7 +69,7 @@ export default function StarlarkNodeModal({
             type="button"
             disabled={!name.trim() || !scriptId}
             onClick={() => {
-              onSave(name.trim(), scriptId, mappings.filter(mapping => mapping.source.trim() && mapping.key.trim()))
+              onSave(name.trim(), scriptId, mappings.filter(isCompleteMapping))
               onClose()
             }}
             className="rounded bg-blue-600 px-4 py-1.5 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50"

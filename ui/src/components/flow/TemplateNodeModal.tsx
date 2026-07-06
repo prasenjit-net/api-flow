@@ -1,6 +1,8 @@
 import { useState } from 'react'
-import { Plus, Trash2, X } from 'lucide-react'
+import { X } from 'lucide-react'
 import type { Mapping, Template } from '../../types'
+import MappingRows from './MappingRows'
+import { emptyMapping, isCompleteMapping } from './mappingUtils'
 
 interface Props {
   name: string
@@ -22,17 +24,13 @@ export default function TemplateNodeModal({
   const [name, setName] = useState(initialName)
   const [templateId, setTemplateId] = useState(initialTemplateId)
   const [mappings, setMappings] = useState<Mapping[]>(
-    initialMappings.length > 0 ? initialMappings : [{ source: '', key: '' }],
+    initialMappings.length > 0 ? initialMappings : [emptyMapping()],
   )
   const selected = templates.find(t => t.id === templateId)
 
   function handleSave() {
-    onSave(name.trim(), templateId, mappings.filter(m => m.source.trim() && m.key.trim()))
+    onSave(name.trim(), templateId, mappings.filter(isCompleteMapping))
     onClose()
-  }
-
-  function updateMapping(index: number, field: keyof Mapping, value: string) {
-    setMappings(rows => rows.map((row, i) => i === index ? { ...row, [field]: value } : row))
   }
 
   return (
@@ -81,39 +79,7 @@ export default function TemplateNodeModal({
                 <p className="mt-0.5 text-[11px] text-slate-400">Mappings add convenience variables; full request and nodes context is always available.</p>
               </div>
             </div>
-            <div className="space-y-2">
-              {mappings.map((mapping, index) => (
-                <div key={index} className="grid grid-cols-[1fr_auto_1fr_auto] items-center gap-2">
-                  <input
-                    value={mapping.source}
-                    onChange={e => updateMapping(index, 'source', e.target.value)}
-                    placeholder="nodes.normalize-user.user_id"
-                    className="rounded border border-slate-200 bg-slate-50 px-2.5 py-1.5 font-mono text-xs text-slate-800 focus:border-blue-400 focus:bg-white focus:outline-none focus:ring-1 focus:ring-blue-400 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200"
-                  />
-                  <span className="text-xs text-slate-300">→</span>
-                  <input
-                    value={mapping.key}
-                    onChange={e => updateMapping(index, 'key', e.target.value)}
-                    placeholder="user_id"
-                    className="rounded border border-slate-200 bg-slate-50 px-2.5 py-1.5 font-mono text-xs text-slate-800 focus:border-blue-400 focus:bg-white focus:outline-none focus:ring-1 focus:ring-blue-400 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200"
-                  />
-                  <button
-                    type="button"
-                    onClick={() => setMappings(rows => rows.filter((_, i) => i !== index))}
-                    className="rounded p-1 text-slate-300 hover:bg-red-50 hover:text-red-400 dark:text-slate-600 dark:hover:bg-red-900/20"
-                  >
-                    <Trash2 className="h-3.5 w-3.5" />
-                  </button>
-                </div>
-              ))}
-            </div>
-            <button
-              type="button"
-              onClick={() => setMappings(rows => [...rows, { source: '', key: '' }])}
-              className="mt-3 flex w-full items-center justify-center gap-1.5 rounded border border-dashed border-slate-300 py-1.5 text-xs text-slate-400 hover:border-blue-300 hover:text-blue-500 dark:border-slate-700 dark:hover:border-blue-700"
-            >
-              <Plus className="h-3 w-3" /> Add input
-            </button>
+            <MappingRows mappings={mappings} onChange={setMappings} sourceLabel="Source path / value" sourcePlaceholder="nodes.normalize-user.user_id" keyPlaceholder="user_id" addLabel="Add alias" />
           </div>
 
           {selected && (

@@ -1,6 +1,8 @@
 import { useState } from 'react'
-import { X, Plus, Trash2 } from 'lucide-react'
+import { X } from 'lucide-react'
 import type { Mapping } from '../../types'
+import MappingRows from './MappingRows'
+import { emptyMapping, isCompleteMapping } from './mappingUtils'
 
 interface Props {
   name: string
@@ -11,22 +13,10 @@ interface Props {
 
 export default function ContextMapperModal({ name: initialName, mappings: initial, onSave, onClose }: Props) {
   const [name, setName] = useState(initialName)
-  const [rows, setRows] = useState<Mapping[]>(initial.length > 0 ? initial : [{ source: '', key: '' }])
-
-  function addRow() {
-    setRows(r => [...r, { source: '', key: '' }])
-  }
-
-  function removeRow(i: number) {
-    setRows(r => r.filter((_, idx) => idx !== i))
-  }
-
-  function updateRow(i: number, field: keyof Mapping, value: string) {
-    setRows(r => r.map((m, idx) => idx === i ? { ...m, [field]: value } : m))
-  }
+  const [rows, setRows] = useState<Mapping[]>(initial.length > 0 ? initial : [emptyMapping()])
 
   function handleSave() {
-    onSave(name.trim(), rows.filter(r => r.source.trim() && r.key.trim()))
+    onSave(name.trim(), rows.filter(isCompleteMapping))
     onClose()
   }
 
@@ -55,46 +45,10 @@ export default function ContextMapperModal({ name: initialName, mappings: initia
             <span className="mt-1 block text-[11px] text-slate-400">Lowercase letters, numbers, hyphens, and underscores only.</span>
           </label>
 
-          <div className="mb-2 grid grid-cols-[1fr_auto_1fr_auto] items-center gap-2 px-1">
-            <span className="text-xs font-medium text-slate-500">Source path</span>
-            <span />
-            <span className="text-xs font-medium text-slate-500">Input variable</span>
-            <span />
-          </div>
-
-          <div className="space-y-2">
-            {rows.map((row, i) => (
-              <div key={i} className="grid grid-cols-[1fr_auto_1fr_auto] items-center gap-2">
-                <input
-                  value={row.source}
-                  onChange={e => updateRow(i, 'source', e.target.value)}
-                  placeholder="request.body.user.name"
-                  className="rounded border border-slate-200 bg-slate-50 px-2.5 py-1.5 font-mono text-xs text-slate-800 placeholder-slate-400 focus:border-blue-400 focus:bg-white focus:outline-none focus:ring-1 focus:ring-blue-400 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200"
-                />
-                <span className="text-xs text-slate-300 dark:text-slate-600">→</span>
-                <input
-                  value={row.key}
-                  onChange={e => updateRow(i, 'key', e.target.value)}
-                  placeholder="user_name"
-                  className="rounded border border-slate-200 bg-slate-50 px-2.5 py-1.5 font-mono text-xs text-slate-800 placeholder-slate-400 focus:border-blue-400 focus:bg-white focus:outline-none focus:ring-1 focus:ring-blue-400 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200"
-                />
-                <button type="button" onClick={() => removeRow(i)} className="rounded p-1 text-slate-300 hover:bg-red-50 hover:text-red-400 dark:text-slate-600 dark:hover:bg-red-900/20">
-                  <Trash2 className="h-3.5 w-3.5" />
-                </button>
-              </div>
-            ))}
-          </div>
-
-          <button
-            type="button"
-            onClick={addRow}
-            className="mt-3 flex w-full items-center justify-center gap-1.5 rounded border border-dashed border-slate-300 py-1.5 text-xs text-slate-400 hover:border-blue-300 hover:text-blue-500 dark:border-slate-700 dark:hover:border-blue-700"
-          >
-            <Plus className="h-3 w-3" /> Add mapping
-          </button>
+          <MappingRows mappings={rows} onChange={setRows} sourceLabel="Source path / value" />
 
           <div className="mt-4 rounded bg-slate-50 p-3 text-[11px] text-slate-500 dark:bg-slate-800/60 dark:text-slate-400">
-            Sources begin with <code className="font-mono">request.</code> or <code className="font-mono">nodes.</code>, for example <code className="font-mono">request.body.user.id</code> or <code className="font-mono">nodes.lookup-user.id</code>.
+            Context sources begin with <code className="font-mono">request.</code> or <code className="font-mono">nodes.</code>. Constant mappings inject a literal value directly into the node input.
           </div>
         </div>
 

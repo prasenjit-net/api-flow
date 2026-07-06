@@ -52,8 +52,11 @@ export interface Script {
 }
 
 export interface Mapping {
-  source: string
+  type?: 'context' | 'constant'
+  source?: string
   key: string
+  value?: unknown
+  valueType?: 'string' | 'number' | 'boolean' | 'null'
 }
 
 export interface NodeData {

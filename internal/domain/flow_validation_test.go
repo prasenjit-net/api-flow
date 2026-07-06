@@ -48,6 +48,30 @@ func TestValidateFlowRejectsOutputThatDoesNotDominateConsumer(t *testing.T) {
 	}
 }
 
+func TestValidateFlowAcceptsConstantMappingsWithoutSource(t *testing.T) {
+	flow := validBranchingFlow()
+	flow.Nodes[1].Data.Mappings = append(flow.Nodes[1].Data.Mappings, Mapping{
+		Type:      "constant",
+		Key:       "display_name",
+		Value:     "user name",
+		ValueType: "string",
+	})
+
+	if issues := ValidateFlow(flow); len(issues) != 0 {
+		t.Fatalf("expected constant mapping to be valid, got %#v", issues)
+	}
+}
+
+func TestValidateFlowRejectsMappingKeyThatIsNotID(t *testing.T) {
+	flow := validBranchingFlow()
+	flow.Nodes[1].Data.Mappings[0].Key = "User Name"
+
+	issues := ValidateFlow(flow)
+	if !hasValidationCode(issues, "mapping_key_invalid") {
+		t.Fatalf("expected invalid mapping key error, got %#v", issues)
+	}
+}
+
 func TestValidateFlowRequiresScriptOnStarlarkNode(t *testing.T) {
 	flow := validBranchingFlow()
 	flow.Nodes[1].Type = NodeTypeStarlark

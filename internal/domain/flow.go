@@ -6,7 +6,7 @@ import (
 	"strings"
 )
 
-const CurrentFlowVersion = 3
+const CurrentFlowVersion = 4
 
 var NodeNamePattern = regexp.MustCompile(`^[a-z0-9][a-z0-9_-]{0,63}$`)
 
@@ -55,8 +55,11 @@ type NodeData struct {
 }
 
 type Mapping struct {
-	Source string `json:"source"`
-	Key    string `json:"key"`
+	Type      string `json:"type,omitempty"`
+	Source    string `json:"source,omitempty"`
+	Key       string `json:"key"`
+	Value     any    `json:"value,omitempty"`
+	ValueType string `json:"valueType,omitempty"`
 }
 
 type Edge struct {

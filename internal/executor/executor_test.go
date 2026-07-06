@@ -132,6 +132,59 @@ func TestExecuteAppendsStarlarkOutputToContext(t *testing.T) {
 	}
 }
 
+func TestExecuteUsesConstantMappedInputs(t *testing.T) {
+	dataStore, err := store.New(t.TempDir())
+	if err != nil {
+		t.Fatalf("create store: %v", err)
+	}
+	if err := dataStore.SaveTemplate("customer-spec", domain.Template{
+		ID:         "constant-template",
+		SpecID:     "customer-spec",
+		StatusCode: http.StatusOK,
+		Body:       `hello {{.nodes.constants.display_name}}`,
+		Headers:    map[string]string{},
+	}); err != nil {
+		t.Fatalf("save template: %v", err)
+	}
+
+	flow := domain.Flow{
+		Version:     domain.CurrentFlowVersion,
+		SpecID:      "customer-spec",
+		OperationID: "constant-operation",
+		Nodes: []domain.Node{
+			{ID: "start", Type: domain.NodeTypeStart, Data: domain.NodeData{Name: "start"}},
+			{
+				ID:   "constants",
+				Type: domain.NodeTypeContextMapper,
+				Data: domain.NodeData{
+					Name: "constants",
+					Mappings: []domain.Mapping{{
+						Type:      "constant",
+						Key:       "display_name",
+						Value:     "user name",
+						ValueType: "string",
+					}},
+				},
+			},
+			{ID: "response", Type: domain.NodeTypeTemplate, Data: domain.NodeData{Name: "response", TemplateID: "constant-template"}},
+			{ID: "end", Type: domain.NodeTypeEnd, Data: domain.NodeData{Name: "end"}},
+		},
+		Edges: []domain.Edge{
+			{ID: "start-constants", Source: "start", Target: "constants"},
+			{ID: "constants-response", Source: "constants", Target: "response"},
+			{ID: "response-end", Source: "response", Target: "end"},
+		},
+	}
+	request := httptest.NewRequest(http.MethodGet, "/constant", nil)
+	response := httptest.NewRecorder()
+
+	New(dataStore).Execute(response, request, flow, nil)
+
+	if response.Code != http.StatusOK || response.Body.String() != "hello user name" {
+		t.Fatalf("unexpected response: status=%d body=%q", response.Code, response.Body.String())
+	}
+}
+
 func TestExecuteSavesTraceWhenSpecTracingEnabled(t *testing.T) {
 	dataStore, err := store.New(t.TempDir())
 	if err != nil {

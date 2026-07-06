@@ -86,14 +86,27 @@ func ValidateFlow(flow Flow) []FlowValidationError {
 		keys := make(map[string]struct{}, len(node.Data.Mappings))
 		for i, mapping := range node.Data.Mappings {
 			field := fmt.Sprintf("data.mappings[%d]", i)
-			if strings.TrimSpace(mapping.Source) == "" {
-				add(FlowValidationError{Code: "mapping_source_required", Message: "mapping source is required", NodeID: node.ID, Field: field + ".source"})
-			} else if sourceErr := validateContextSource(mapping.Source, nodesByName); sourceErr != "" {
-				add(FlowValidationError{Code: "mapping_source_invalid", Message: sourceErr, NodeID: node.ID, Field: field + ".source"})
+			switch mapping.Type {
+			case "", "context":
+				if strings.TrimSpace(mapping.Source) == "" {
+					add(FlowValidationError{Code: "mapping_source_required", Message: "mapping source is required", NodeID: node.ID, Field: field + ".source"})
+				} else if sourceErr := validateContextSource(mapping.Source, nodesByName); sourceErr != "" {
+					add(FlowValidationError{Code: "mapping_source_invalid", Message: sourceErr, NodeID: node.ID, Field: field + ".source"})
+				}
+			case "constant":
+			default:
+				add(FlowValidationError{Code: "mapping_type_invalid", Message: fmt.Sprintf("unsupported mapping type %q", mapping.Type), NodeID: node.ID, Field: field + ".type"})
 			}
 			key := strings.TrimSpace(mapping.Key)
 			if key == "" {
 				add(FlowValidationError{Code: "mapping_key_required", Message: "mapping input key is required", NodeID: node.ID, Field: field + ".key"})
+			} else if !NodeNamePattern.MatchString(key) {
+				add(FlowValidationError{
+					Code:    "mapping_key_invalid",
+					Message: "mapping input key must start with a lowercase letter or number and contain only lowercase letters, numbers, '-' or '_' (maximum 64 characters)",
+					NodeID:  node.ID,
+					Field:   field + ".key",
+				})
 			} else if _, exists := keys[key]; exists {
 				add(FlowValidationError{Code: "mapping_key_duplicate", Message: fmt.Sprintf("input key %q is mapped more than once", key), NodeID: node.ID, Field: field + ".key"})
 			} else {
@@ -206,6 +219,9 @@ func ValidateFlow(flow Flow) []FlowValidationError {
 	dominators := calculateDominators(startID, reachable, incoming)
 	for _, node := range flow.Nodes {
 		for i, mapping := range node.Data.Mappings {
+			if mapping.Type == "constant" {
+				continue
+			}
 			referencedName, referencesNode := referencedNodeName(mapping.Source)
 			if !referencesNode {
 				continue
