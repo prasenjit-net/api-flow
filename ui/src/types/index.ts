@@ -20,6 +20,9 @@ export interface SpecDetail extends SpecMeta {
 
 export interface Template {
   id: string
+  specId: string
+  operationId?: string
+  sourceExampleId?: string
   name: string
   statusCode: number
   body: string
@@ -28,15 +31,56 @@ export interface Template {
   updatedAt: string
 }
 
+export interface TemplateExample {
+  id: string
+  name: string
+  operationId: string
+  statusCode: number
+  mediaType: string
+  body: string
+  headers: Record<string, string>
+}
+
 export interface Mapping {
   source: string
   key: string
 }
 
 export interface NodeData {
+  name: string
   mappings?: Mapping[]
   templateId?: string
 }
+
+export type LogicalOperator = 'and' | 'or' | 'not'
+
+export type ConditionOperator =
+  | 'equals'
+  | 'notEquals'
+  | 'greaterThan'
+  | 'greaterThanOrEqual'
+  | 'lessThan'
+  | 'lessThanOrEqual'
+  | 'contains'
+  | 'startsWith'
+  | 'endsWith'
+  | 'in'
+  | 'exists'
+  | 'notExists'
+
+export type Condition =
+  | {
+      type: 'group'
+      operator: LogicalOperator
+      children: Condition[]
+    }
+  | {
+      type: 'rule'
+      source: string
+      operator: ConditionOperator
+      value?: unknown
+      valueType?: 'string' | 'number' | 'boolean' | 'null'
+    }
 
 export type NodeType = 'start' | 'contextMapper' | 'template' | 'end'
 
@@ -51,13 +95,24 @@ export interface FlowEdge {
   id: string
   source: string
   target: string
+  priority?: number
+  condition?: Condition
 }
 
 export interface Flow {
+  version: number
   specId: string
   operationId: string
   nodes: FlowNode[]
   edges: FlowEdge[]
+}
+
+export interface FlowValidationError {
+  code: string
+  message: string
+  nodeId?: string
+  edgeId?: string
+  field?: string
 }
 
 export interface MetaResponse {

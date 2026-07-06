@@ -3,12 +3,14 @@ import { X, Plus, Trash2 } from 'lucide-react'
 import type { Mapping } from '../../types'
 
 interface Props {
+  name: string
   mappings: Mapping[]
-  onSave: (mappings: Mapping[]) => void
+  onSave: (name: string, mappings: Mapping[]) => void
   onClose: () => void
 }
 
-export default function ContextMapperModal({ mappings: initial, onSave, onClose }: Props) {
+export default function ContextMapperModal({ name: initialName, mappings: initial, onSave, onClose }: Props) {
+  const [name, setName] = useState(initialName)
   const [rows, setRows] = useState<Mapping[]>(initial.length > 0 ? initial : [{ source: '', key: '' }])
 
   function addRow() {
@@ -24,7 +26,7 @@ export default function ContextMapperModal({ mappings: initial, onSave, onClose 
   }
 
   function handleSave() {
-    onSave(rows.filter(r => r.source.trim() && r.key.trim()))
+    onSave(name.trim(), rows.filter(r => r.source.trim() && r.key.trim()))
     onClose()
   }
 
@@ -34,7 +36,7 @@ export default function ContextMapperModal({ mappings: initial, onSave, onClose 
         <div className="flex items-center justify-between border-b border-slate-200 px-5 py-3.5 dark:border-slate-800">
           <div>
             <h2 className="text-sm font-semibold text-slate-800 dark:text-slate-100">Context Mapper</h2>
-            <p className="mt-0.5 text-xs text-slate-500">Map request fields to context keys for use in templates</p>
+            <p className="mt-0.5 text-xs text-slate-500">Build this node's scoped input and append it to context as output</p>
           </div>
           <button type="button" onClick={onClose} className="rounded p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-600 dark:hover:bg-slate-800">
             <X className="h-4 w-4" />
@@ -42,10 +44,21 @@ export default function ContextMapperModal({ mappings: initial, onSave, onClose 
         </div>
 
         <div className="p-5">
+          <label className="mb-4 block">
+            <span className="mb-1.5 block text-xs font-medium text-slate-600 dark:text-slate-400">Node name</span>
+            <input
+              value={name}
+              onChange={e => setName(e.target.value)}
+              placeholder="normalize-user"
+              className="w-full rounded border border-slate-200 bg-slate-50 px-3 py-2 font-mono text-xs text-slate-800 placeholder-slate-400 focus:border-blue-400 focus:bg-white focus:outline-none focus:ring-1 focus:ring-blue-400 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200"
+            />
+            <span className="mt-1 block text-[11px] text-slate-400">Lowercase letters, numbers, hyphens, and underscores only.</span>
+          </label>
+
           <div className="mb-2 grid grid-cols-[1fr_auto_1fr_auto] items-center gap-2 px-1">
             <span className="text-xs font-medium text-slate-500">Source path</span>
             <span />
-            <span className="text-xs font-medium text-slate-500">Context key</span>
+            <span className="text-xs font-medium text-slate-500">Input variable</span>
             <span />
           </div>
 
@@ -55,14 +68,14 @@ export default function ContextMapperModal({ mappings: initial, onSave, onClose 
                 <input
                   value={row.source}
                   onChange={e => updateRow(i, 'source', e.target.value)}
-                  placeholder="body.user.name"
+                  placeholder="request.body.user.name"
                   className="rounded border border-slate-200 bg-slate-50 px-2.5 py-1.5 font-mono text-xs text-slate-800 placeholder-slate-400 focus:border-blue-400 focus:bg-white focus:outline-none focus:ring-1 focus:ring-blue-400 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200"
                 />
                 <span className="text-xs text-slate-300 dark:text-slate-600">→</span>
                 <input
                   value={row.key}
                   onChange={e => updateRow(i, 'key', e.target.value)}
-                  placeholder="userName"
+                  placeholder="user_name"
                   className="rounded border border-slate-200 bg-slate-50 px-2.5 py-1.5 font-mono text-xs text-slate-800 placeholder-slate-400 focus:border-blue-400 focus:bg-white focus:outline-none focus:ring-1 focus:ring-blue-400 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200"
                 />
                 <button type="button" onClick={() => removeRow(i)} className="rounded p-1 text-slate-300 hover:bg-red-50 hover:text-red-400 dark:text-slate-600 dark:hover:bg-red-900/20">
@@ -81,7 +94,7 @@ export default function ContextMapperModal({ mappings: initial, onSave, onClose 
           </button>
 
           <div className="mt-4 rounded bg-slate-50 p-3 text-[11px] text-slate-500 dark:bg-slate-800/60 dark:text-slate-400">
-            Source prefixes: <code className="font-mono">body.</code> <code className="font-mono">path.</code> <code className="font-mono">query.</code> <code className="font-mono">header.</code> — supports dot notation, e.g. <code className="font-mono">body.user.address.city</code>
+            Sources begin with <code className="font-mono">request.</code> or <code className="font-mono">nodes.</code>, for example <code className="font-mono">request.body.user.id</code> or <code className="font-mono">nodes.lookup-user.id</code>.
           </div>
         </div>
 
@@ -89,7 +102,7 @@ export default function ContextMapperModal({ mappings: initial, onSave, onClose 
           <button type="button" onClick={onClose} className="rounded border border-slate-200 px-4 py-1.5 text-sm text-slate-600 hover:bg-slate-50 dark:border-slate-700 dark:text-slate-400 dark:hover:bg-slate-800">
             Cancel
           </button>
-          <button type="button" onClick={handleSave} className="rounded bg-blue-600 px-4 py-1.5 text-sm font-medium text-white hover:bg-blue-700">
+          <button type="button" onClick={handleSave} disabled={!name.trim()} className="rounded bg-blue-600 px-4 py-1.5 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50">
             Apply
           </button>
         </div>

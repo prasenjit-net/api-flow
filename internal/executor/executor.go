@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"sort"
 	"strings"
 	"text/template"
 	"time"
@@ -23,119 +24,233 @@ func New(s store.Store) *Executor {
 }
 
 func (e *Executor) Execute(w http.ResponseWriter, r *http.Request, flow domain.Flow, pathParams map[string]string) {
-	ctx, err := buildContext(r, pathParams, flow)
+	flow = domain.NormalizeFlow(flow)
+	if validationErrors := domain.ValidateFlow(flow); len(validationErrors) > 0 {
+		http.Error(w, fmt.Sprintf("invalid workflow: %s", validationErrors[0].Message), http.StatusInternalServerError)
+		return
+	}
+
+	ctx, err := buildRequestContext(r, pathParams)
 	if err != nil {
 		http.Error(w, fmt.Sprintf("context error: %v", err), http.StatusInternalServerError)
 		return
 	}
 
-	tmplNode := findTemplateNode(flow)
-	if tmplNode == nil {
-		http.Error(w, "no template node configured for this operation", http.StatusNotImplemented)
-		return
-	}
-
-	t, err := e.store.GetTemplate(tmplNode.Data.TemplateID)
-	if err != nil {
-		http.Error(w, "template not found", http.StatusInternalServerError)
-		return
-	}
-
-	for key, valTmpl := range t.Headers {
-		rendered, err := renderString(valTmpl, ctx)
-		if err != nil {
-			continue
+	nodesByID := make(map[string]domain.Node, len(flow.Nodes))
+	outgoing := make(map[string][]domain.Edge, len(flow.Nodes))
+	var startNode *domain.Node
+	for i := range flow.Nodes {
+		node := flow.Nodes[i]
+		nodesByID[node.ID] = node
+		if node.Type == domain.NodeTypeStart {
+			startNode = &node
 		}
-		w.Header().Set(key, rendered)
+	}
+	for _, edge := range flow.Edges {
+		outgoing[edge.Source] = append(outgoing[edge.Source], edge)
+	}
+	if startNode == nil {
+		http.Error(w, "invalid workflow: start node is missing", http.StatusInternalServerError)
+		return
 	}
 
-	body, err := renderString(t.Body, ctx)
+	var response *responseCandidate
+	current := *startNode
+	visited := make(map[string]bool, len(flow.Nodes))
+
+	for {
+		if visited[current.ID] {
+			http.Error(w, "workflow execution encountered a cycle", http.StatusInternalServerError)
+			return
+		}
+		visited[current.ID] = true
+
+		switch current.Type {
+		case domain.NodeTypeStart:
+		case domain.NodeTypeContextMapper:
+			input := buildNodeInput(current, ctx)
+			contextNodes(ctx)[current.Data.Name] = input
+		case domain.NodeTypeTemplate:
+			input := buildNodeInput(current, ctx)
+			candidate, output, err := e.executeTemplate(flow.SpecID, flow.OperationID, current, input)
+			if err != nil {
+				http.Error(w, err.Error(), http.StatusInternalServerError)
+				return
+			}
+			response = candidate
+			contextNodes(ctx)[current.Data.Name] = output
+		case domain.NodeTypeEnd:
+			if response == nil {
+				http.Error(w, "workflow ended without producing a response", http.StatusInternalServerError)
+				return
+			}
+			writeResponse(w, *response)
+			return
+		default:
+			http.Error(w, fmt.Sprintf("unsupported node type %q", current.Type), http.StatusInternalServerError)
+			return
+		}
+
+		edge, err := selectOutgoingEdge(outgoing[current.ID], ctx)
+		if err != nil {
+			http.Error(w, fmt.Sprintf("branch evaluation error: %v", err), http.StatusInternalServerError)
+			return
+		}
+		next, exists := nodesByID[edge.Target]
+		if !exists {
+			http.Error(w, fmt.Sprintf("workflow target node %q not found", edge.Target), http.StatusInternalServerError)
+			return
+		}
+		current = next
+	}
+}
+
+type responseCandidate struct {
+	StatusCode int
+	Headers    map[string]string
+	Body       string
+}
+
+func (e *Executor) executeTemplate(specID, operationID string, node domain.Node, input map[string]any) (*responseCandidate, map[string]any, error) {
+	t, err := e.store.GetTemplate(specID, node.Data.TemplateID)
 	if err != nil {
-		http.Error(w, fmt.Sprintf("body render error: %v", err), http.StatusInternalServerError)
-		return
+		return nil, nil, fmt.Errorf("template %q not found", node.Data.TemplateID)
+	}
+	if t.OperationID != "" && t.OperationID != operationID {
+		return nil, nil, fmt.Errorf("template %q is scoped to operation %q", node.Data.TemplateID, t.OperationID)
+	}
+	headers := make(map[string]string, len(t.Headers))
+	for key, valTmpl := range t.Headers {
+		rendered, err := renderString(valTmpl, input)
+		if err != nil {
+			return nil, nil, fmt.Errorf("template header %q render error: %w", key, err)
+		}
+		headers[key] = rendered
+	}
+
+	body, err := renderString(t.Body, input)
+	if err != nil {
+		return nil, nil, fmt.Errorf("body render error: %w", err)
 	}
 
 	statusCode := t.StatusCode
 	if statusCode == 0 {
 		statusCode = http.StatusOK
 	}
-	w.WriteHeader(statusCode)
-	_, _ = w.Write([]byte(body))
+	candidate := &responseCandidate{StatusCode: statusCode, Headers: headers, Body: body}
+	output := map[string]any{
+		"statusCode": statusCode,
+		"headers":    headers,
+		"body":       body,
+	}
+	return candidate, output, nil
 }
 
-func buildContext(r *http.Request, pathParams map[string]string, flow domain.Flow) (map[string]any, error) {
-	var bodyData map[string]any
+func writeResponse(w http.ResponseWriter, response responseCandidate) {
+	for key, value := range response.Headers {
+		w.Header().Set(key, value)
+	}
+	w.WriteHeader(response.StatusCode)
+	_, _ = w.Write([]byte(response.Body))
+}
+
+func buildRequestContext(r *http.Request, pathParams map[string]string) (map[string]any, error) {
+	var bodyData any
 	if r.Body != nil && r.Body != http.NoBody {
 		raw, err := io.ReadAll(r.Body)
-		if err == nil && len(raw) > 0 {
-			_ = json.Unmarshal(raw, &bodyData)
+		if err != nil {
+			return nil, err
+		}
+		if len(raw) > 0 {
+			if err := json.Unmarshal(raw, &bodyData); err != nil {
+				bodyData = string(raw)
+			}
 		}
 	}
 
-	ctx := map[string]any{}
-	for _, node := range flow.Nodes {
-		if node.Type != domain.NodeTypeContextMapper {
-			continue
-		}
-		for _, m := range node.Data.Mappings {
-			val := resolveSource(m.Source, r, pathParams, bodyData)
-			ctx[m.Key] = val
+	query := make(map[string]any, len(r.URL.Query()))
+	for key, values := range r.URL.Query() {
+		if len(values) == 1 {
+			query[key] = values[0]
+		} else {
+			query[key] = values
 		}
 	}
-	return ctx, nil
+	headers := make(map[string]any, len(r.Header))
+	for key, values := range r.Header {
+		normalizedKey := strings.ToLower(key)
+		if len(values) == 1 {
+			headers[normalizedKey] = values[0]
+		} else {
+			headers[normalizedKey] = values
+		}
+	}
+	path := make(map[string]any, len(pathParams))
+	for key, value := range pathParams {
+		path[key] = value
+	}
+
+	return map[string]any{
+		"request": map[string]any{
+			"method":  strings.ToUpper(r.Method),
+			"url":     r.URL.String(),
+			"path":    path,
+			"query":   query,
+			"headers": headers,
+			"body":    bodyData,
+		},
+		"nodes": map[string]any{},
+	}, nil
 }
 
-func resolveSource(source string, r *http.Request, pathParams map[string]string, body map[string]any) any {
-	parts := strings.SplitN(source, ".", 2)
-	prefix := parts[0]
-	rest := ""
-	if len(parts) == 2 {
-		rest = parts[1]
-	}
-
-	switch prefix {
-	case "body":
-		if body == nil {
-			return nil
-		}
-		if rest == "" {
-			return body
-		}
-		val, _ := nestedGet(body, rest)
-		return val
-	case "path":
-		return pathParams[rest]
-	case "query":
-		return r.URL.Query().Get(rest)
-	case "header":
-		return r.Header.Get(rest)
-	}
-	return nil
-}
-
-func nestedGet(data map[string]any, path string) (any, bool) {
-	parts := strings.SplitN(path, ".", 2)
-	val, ok := data[parts[0]]
+func contextNodes(context map[string]any) map[string]any {
+	nodes, ok := context["nodes"].(map[string]any)
 	if !ok {
-		return nil, false
+		nodes = map[string]any{}
+		context["nodes"] = nodes
 	}
-	if len(parts) == 1 {
-		return val, true
-	}
-	nested, ok := val.(map[string]any)
-	if !ok {
-		return val, true
-	}
-	return nestedGet(nested, parts[1])
+	return nodes
 }
 
-func findTemplateNode(flow domain.Flow) *domain.Node {
-	for i := range flow.Nodes {
-		if flow.Nodes[i].Type == domain.NodeTypeTemplate {
-			return &flow.Nodes[i]
+func buildNodeInput(node domain.Node, context map[string]any) map[string]any {
+	input := make(map[string]any, len(node.Data.Mappings))
+	for _, mapping := range node.Data.Mappings {
+		value, exists := ResolveContextPath(context, mapping.Source)
+		if !exists {
+			value = nil
+		}
+		input[mapping.Key] = value
+	}
+	return input
+}
+
+func selectOutgoingEdge(edges []domain.Edge, context map[string]any) (domain.Edge, error) {
+	var fallback *domain.Edge
+	conditional := make([]domain.Edge, 0, len(edges))
+	for i := range edges {
+		if edges[i].Condition == nil {
+			edge := edges[i]
+			fallback = &edge
+		} else {
+			conditional = append(conditional, edges[i])
 		}
 	}
-	return nil
+	sort.SliceStable(conditional, func(i, j int) bool {
+		return conditional[i].Priority < conditional[j].Priority
+	})
+	for _, edge := range conditional {
+		matched, err := EvaluateCondition(*edge.Condition, context)
+		if err != nil {
+			return domain.Edge{}, fmt.Errorf("edge %q: %w", edge.ID, err)
+		}
+		if matched {
+			return edge, nil
+		}
+	}
+	if fallback == nil {
+		return domain.Edge{}, fmt.Errorf("no condition matched and no unconditional fallback edge exists")
+	}
+	return *fallback, nil
 }
 
 func renderString(tmplStr string, ctx map[string]any) (string, error) {

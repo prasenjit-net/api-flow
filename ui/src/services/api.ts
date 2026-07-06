@@ -1,15 +1,29 @@
-import type { Flow, MetaResponse, SpecDetail, SpecMeta, Template } from '../types'
+import type { Flow, FlowValidationError, MetaResponse, SpecDetail, SpecMeta, Template, TemplateExample } from '../types'
 
 const BASE = import.meta.env.VITE_API_BASE || '/_api'
+
+export class ApiError extends Error {
+  status: number
+  details: FlowValidationError[]
+
+  constructor(status: number, message: string, details: FlowValidationError[] = []) {
+    super(message)
+    this.name = 'ApiError'
+    this.status = status
+    this.details = details
+  }
+}
 
 async function handle<T>(res: Response): Promise<T> {
   if (!res.ok) {
     let msg = `HTTP ${res.status}`
+    let details: FlowValidationError[] = []
     try {
       const body = await res.json()
       if (body?.error) msg = body.error
+      if (Array.isArray(body?.details)) details = body.details
     } catch { /* ignore */ }
-    throw new Error(msg)
+    throw new ApiError(res.status, msg, details)
   }
   return res.json() as Promise<T>
 }
@@ -41,21 +55,26 @@ export const flowsApi = {
 }
 
 export const templatesApi = {
-  list: () => fetch(`${BASE}/templates`).then(r => handle<Template[]>(r)),
-  create: (t: Omit<Template, 'id' | 'createdAt' | 'updatedAt'>) =>
-    fetch(`${BASE}/templates`, {
+  list: (specId: string, operationId?: string) => {
+    const query = operationId ? `?operationId=${encodeURIComponent(operationId)}` : ''
+    return fetch(`${BASE}/specs/${specId}/templates${query}`).then(r => handle<Template[]>(r))
+  },
+  create: (specId: string, t: Omit<Template, 'id' | 'specId' | 'createdAt' | 'updatedAt'>) =>
+    fetch(`${BASE}/specs/${specId}/templates`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(t),
     }).then(r => handle<Template>(r)),
-  update: (id: string, t: Omit<Template, 'id' | 'createdAt' | 'updatedAt'>) =>
-    fetch(`${BASE}/templates/${id}`, {
+  update: (specId: string, id: string, t: Omit<Template, 'id' | 'specId' | 'createdAt' | 'updatedAt'>) =>
+    fetch(`${BASE}/specs/${specId}/templates/${id}`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(t),
     }).then(r => handle<Template>(r)),
-  delete: (id: string) =>
-    fetch(`${BASE}/templates/${id}`, { method: 'DELETE' }).then(r => {
+  delete: (specId: string, id: string) =>
+    fetch(`${BASE}/specs/${specId}/templates/${id}`, { method: 'DELETE' }).then(r => {
       if (!r.ok) throw new Error(`HTTP ${r.status}`)
     }),
+  examples: (specId: string, operationId: string) =>
+    fetch(`${BASE}/specs/${specId}/operations/${operationId}/response-examples`).then(r => handle<TemplateExample[]>(r)),
 }

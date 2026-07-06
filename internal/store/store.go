@@ -20,8 +20,8 @@ type Store interface {
 	GetFlow(specID, opID string) (domain.Flow, error)
 	ListFlows(specID string) ([]domain.Flow, error)
 
-	SaveTemplate(t domain.Template) error
-	GetTemplate(id string) (domain.Template, error)
-	ListTemplates() ([]domain.Template, error)
-	DeleteTemplate(id string) error
+	SaveTemplate(specID string, t domain.Template) error
+	GetTemplate(specID, id string) (domain.Template, error)
+	ListTemplates(specID string) ([]domain.Template, error)
+	DeleteTemplate(specID, id string) error
 }

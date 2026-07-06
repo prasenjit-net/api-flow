@@ -29,13 +29,11 @@ func NewRouter(cfg config.Config, logger *slog.Logger, build version.Info, s sto
 		r.Delete("/{id}", h.DeleteSpec)
 		r.Get("/{id}/flows/{opId}", h.GetFlow)
 		r.Put("/{id}/flows/{opId}", h.SaveFlow)
-	})
-
-	r.Route("/templates", func(r chi.Router) {
-		r.Get("/", h.ListTemplates)
-		r.Post("/", h.CreateTemplate)
-		r.Put("/{id}", h.UpdateTemplate)
-		r.Delete("/{id}", h.DeleteTemplate)
+		r.Get("/{id}/templates", h.ListTemplates)
+		r.Post("/{id}/templates", h.CreateTemplate)
+		r.Put("/{id}/templates/{templateId}", h.UpdateTemplate)
+		r.Delete("/{id}/templates/{templateId}", h.DeleteTemplate)
+		r.Get("/{id}/operations/{opId}/response-examples", h.ListResponseExamples)
 	})
 
 	logger.Debug("api router initialized")

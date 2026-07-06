@@ -1,26 +1,43 @@
 import { useState } from 'react'
-import { X } from 'lucide-react'
-import type { Template } from '../../types'
+import { Plus, Trash2, X } from 'lucide-react'
+import type { Mapping, Template } from '../../types'
 
 interface Props {
+  name: string
   templateId: string
+  mappings: Mapping[]
   templates: Template[]
-  onSave: (templateId: string) => void
+  onSave: (name: string, templateId: string, mappings: Mapping[]) => void
   onClose: () => void
 }
 
-export default function TemplateNodeModal({ templateId: initial, templates, onSave, onClose }: Props) {
-  const [templateId, setTemplateId] = useState(initial)
+export default function TemplateNodeModal({
+  name: initialName,
+  templateId: initialTemplateId,
+  mappings: initialMappings,
+  templates,
+  onSave,
+  onClose,
+}: Props) {
+  const [name, setName] = useState(initialName)
+  const [templateId, setTemplateId] = useState(initialTemplateId)
+  const [mappings, setMappings] = useState<Mapping[]>(
+    initialMappings.length > 0 ? initialMappings : [{ source: '', key: '' }],
+  )
   const selected = templates.find(t => t.id === templateId)
 
   function handleSave() {
-    onSave(templateId)
+    onSave(name.trim(), templateId, mappings.filter(m => m.source.trim() && m.key.trim()))
     onClose()
+  }
+
+  function updateMapping(index: number, field: keyof Mapping, value: string) {
+    setMappings(rows => rows.map((row, i) => i === index ? { ...row, [field]: value } : row))
   }
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/30 backdrop-blur-[2px]">
-      <div className="w-full max-w-md rounded-lg border border-slate-200 bg-white shadow-xl dark:border-slate-700 dark:bg-slate-900">
+      <div className="max-h-[90vh] w-full max-w-xl overflow-y-auto rounded-lg border border-slate-200 bg-white shadow-xl dark:border-slate-700 dark:bg-slate-900">
         <div className="flex items-center justify-between border-b border-slate-200 px-5 py-3.5 dark:border-slate-800">
           <div>
             <h2 className="text-sm font-semibold text-slate-800 dark:text-slate-100">Template Node</h2>
@@ -33,6 +50,17 @@ export default function TemplateNodeModal({ templateId: initial, templates, onSa
 
         <div className="p-5 space-y-4">
           <div>
+            <label className="mb-1.5 block text-xs font-medium text-slate-600 dark:text-slate-400">Node name</label>
+            <input
+              value={name}
+              onChange={e => setName(e.target.value)}
+              placeholder="success-response"
+              className="w-full rounded border border-slate-200 bg-slate-50 px-3 py-2 font-mono text-xs text-slate-800 focus:border-blue-400 focus:bg-white focus:outline-none focus:ring-1 focus:ring-blue-400 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200"
+            />
+            <p className="mt-1 text-[11px] text-slate-400">Lowercase letters, numbers, hyphens, and underscores only.</p>
+          </div>
+
+          <div>
             <label className="mb-1.5 block text-xs font-medium text-slate-600 dark:text-slate-400">Template</label>
             <select
               value={templateId}
@@ -44,6 +72,48 @@ export default function TemplateNodeModal({ templateId: initial, templates, onSa
                 <option key={t.id} value={t.id}>{t.name} ({t.statusCode})</option>
               ))}
             </select>
+          </div>
+
+          <div>
+            <div className="mb-2 flex items-end justify-between gap-3">
+              <div>
+                <p className="text-xs font-medium text-slate-600 dark:text-slate-400">Template inputs</p>
+                <p className="mt-0.5 text-[11px] text-slate-400">The template can only read these mapped variables.</p>
+              </div>
+            </div>
+            <div className="space-y-2">
+              {mappings.map((mapping, index) => (
+                <div key={index} className="grid grid-cols-[1fr_auto_1fr_auto] items-center gap-2">
+                  <input
+                    value={mapping.source}
+                    onChange={e => updateMapping(index, 'source', e.target.value)}
+                    placeholder="nodes.normalize-user.user_id"
+                    className="rounded border border-slate-200 bg-slate-50 px-2.5 py-1.5 font-mono text-xs text-slate-800 focus:border-blue-400 focus:bg-white focus:outline-none focus:ring-1 focus:ring-blue-400 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200"
+                  />
+                  <span className="text-xs text-slate-300">→</span>
+                  <input
+                    value={mapping.key}
+                    onChange={e => updateMapping(index, 'key', e.target.value)}
+                    placeholder="user_id"
+                    className="rounded border border-slate-200 bg-slate-50 px-2.5 py-1.5 font-mono text-xs text-slate-800 focus:border-blue-400 focus:bg-white focus:outline-none focus:ring-1 focus:ring-blue-400 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setMappings(rows => rows.filter((_, i) => i !== index))}
+                    className="rounded p-1 text-slate-300 hover:bg-red-50 hover:text-red-400 dark:text-slate-600 dark:hover:bg-red-900/20"
+                  >
+                    <Trash2 className="h-3.5 w-3.5" />
+                  </button>
+                </div>
+              ))}
+            </div>
+            <button
+              type="button"
+              onClick={() => setMappings(rows => [...rows, { source: '', key: '' }])}
+              className="mt-3 flex w-full items-center justify-center gap-1.5 rounded border border-dashed border-slate-300 py-1.5 text-xs text-slate-400 hover:border-blue-300 hover:text-blue-500 dark:border-slate-700 dark:hover:border-blue-700"
+            >
+              <Plus className="h-3 w-3" /> Add input
+            </button>
           </div>
 
           {selected && (
@@ -79,7 +149,7 @@ export default function TemplateNodeModal({ templateId: initial, templates, onSa
           <button type="button" onClick={onClose} className="rounded border border-slate-200 px-4 py-1.5 text-sm text-slate-600 hover:bg-slate-50 dark:border-slate-700 dark:text-slate-400 dark:hover:bg-slate-800">
             Cancel
           </button>
-          <button type="button" onClick={handleSave} disabled={!templateId} className="rounded bg-blue-600 px-4 py-1.5 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50">
+          <button type="button" onClick={handleSave} disabled={!name.trim() || !templateId} className="rounded bg-blue-600 px-4 py-1.5 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50">
             Apply
           </button>
         </div>

@@ -136,12 +136,7 @@ func (h *Handler) DeleteSpec(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) parseOperations(specID string) ([]domain.Operation, error) {
-	data, err := h.store.GetSpecFile(specID)
-	if err != nil {
-		return nil, err
-	}
-
-	doc, err := openapi3.NewLoader().LoadFromData(data)
+	doc, err := h.loadSpecDocument(specID)
 	if err != nil {
 		return nil, err
 	}
@@ -172,4 +167,17 @@ func (h *Handler) parseOperations(specID string) ([]domain.Operation, error) {
 		}
 	}
 	return ops, nil
+}
+
+func (h *Handler) loadSpecDocument(specID string) (*openapi3.T, error) {
+	data, err := h.store.GetSpecFile(specID)
+	if err != nil {
+		return nil, err
+	}
+
+	doc, err := openapi3.NewLoader().LoadFromData(data)
+	if err != nil {
+		return nil, err
+	}
+	return doc, nil
 }

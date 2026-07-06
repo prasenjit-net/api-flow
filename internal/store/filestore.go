@@ -15,21 +15,24 @@ type FileStore struct {
 }
 
 func New(dir string) (*FileStore, error) {
-	for _, sub := range []string{
-		filepath.Join(dir, "specs"),
-		filepath.Join(dir, "templates"),
-	} {
+	for _, sub := range []string{filepath.Join(dir, "specs")} {
 		if err := os.MkdirAll(sub, 0o755); err != nil {
 			return nil, fmt.Errorf("create data dir %s: %w", sub, err)
 		}
 	}
-	return &FileStore{dir: dir}, nil
+	store := &FileStore{dir: dir}
+	if err := store.migrateGlobalTemplates(); err != nil {
+		return nil, fmt.Errorf("migrate global templates: %w", err)
+	}
+	return store, nil
 }
 
 func (s *FileStore) SaveSpecMeta(meta domain.SpecMeta) error {
 	dir := filepath.Join(s.dir, "specs", meta.ID)
-	if err := os.MkdirAll(filepath.Join(dir, "flows"), 0o755); err != nil {
-		return err
+	for _, sub := range []string{"flows", "templates"} {
+		if err := os.MkdirAll(filepath.Join(dir, sub), 0o755); err != nil {
+			return err
+		}
 	}
 	return writeJSON(filepath.Join(dir, "meta.json"), meta)
 }
@@ -120,20 +123,22 @@ func (s *FileStore) ListFlows(specID string) ([]domain.Flow, error) {
 	return result, nil
 }
 
-func (s *FileStore) SaveTemplate(t domain.Template) error {
-	if err := os.MkdirAll(filepath.Join(s.dir, "templates"), 0o755); err != nil {
+func (s *FileStore) SaveTemplate(specID string, t domain.Template) error {
+	dir := filepath.Join(s.dir, "specs", specID, "templates")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return err
 	}
-	return writeJSON(filepath.Join(s.dir, "templates", t.ID+".json"), t)
+	t.SpecID = specID
+	return writeJSON(filepath.Join(dir, t.ID+".json"), t)
 }
 
-func (s *FileStore) GetTemplate(id string) (domain.Template, error) {
+func (s *FileStore) GetTemplate(specID, id string) (domain.Template, error) {
 	var t domain.Template
-	return t, readJSON(filepath.Join(s.dir, "templates", id+".json"), &t)
+	return t, readJSON(filepath.Join(s.dir, "specs", specID, "templates", id+".json"), &t)
 }
 
-func (s *FileStore) ListTemplates() ([]domain.Template, error) {
-	dir := filepath.Join(s.dir, "templates")
+func (s *FileStore) ListTemplates(specID string) ([]domain.Template, error) {
+	dir := filepath.Join(s.dir, "specs", specID, "templates")
 	entries, err := os.ReadDir(dir)
 	if err != nil {
 		if os.IsNotExist(err) {
@@ -155,12 +160,82 @@ func (s *FileStore) ListTemplates() ([]domain.Template, error) {
 	return result, nil
 }
 
-func (s *FileStore) DeleteTemplate(id string) error {
-	err := os.Remove(filepath.Join(s.dir, "templates", id+".json"))
+func (s *FileStore) DeleteTemplate(specID, id string) error {
+	err := os.Remove(filepath.Join(s.dir, "specs", specID, "templates", id+".json"))
 	if os.IsNotExist(err) {
 		return nil
 	}
 	return err
+}
+
+// migrateGlobalTemplates copies templates from the pre-scope global directory
+// into every spec whose flows reference them. Scoped IDs may be identical
+// across specs, so existing flows do not need to be rewritten. Migrated source
+// files are retained in a backup directory; unreferenced files remain global
+// until a destination spec can be chosen explicitly.
+func (s *FileStore) migrateGlobalTemplates() error {
+	legacyDir := filepath.Join(s.dir, "templates")
+	entries, err := os.ReadDir(legacyDir)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil
+		}
+		return err
+	}
+
+	references := map[string]map[string]bool{}
+	specs, err := s.ListSpecMeta()
+	if err != nil {
+		return err
+	}
+	for _, spec := range specs {
+		flows, err := s.ListFlows(spec.ID)
+		if err != nil {
+			return err
+		}
+		for _, flow := range flows {
+			for _, node := range flow.Nodes {
+				if node.Type != domain.NodeTypeTemplate || node.Data.TemplateID == "" {
+					continue
+				}
+				if references[node.Data.TemplateID] == nil {
+					references[node.Data.TemplateID] = map[string]bool{}
+				}
+				references[node.Data.TemplateID][spec.ID] = true
+			}
+		}
+	}
+
+	backupDir := filepath.Join(s.dir, "legacy-templates-migrated")
+	for _, entry := range entries {
+		if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".json") {
+			continue
+		}
+		templateID := strings.TrimSuffix(entry.Name(), ".json")
+		specIDs := references[templateID]
+		if len(specIDs) == 0 {
+			continue
+		}
+		var template domain.Template
+		sourcePath := filepath.Join(legacyDir, entry.Name())
+		if err := readJSON(sourcePath, &template); err != nil {
+			return err
+		}
+		for specID := range specIDs {
+			template.SpecID = specID
+			template.OperationID = ""
+			if err := s.SaveTemplate(specID, template); err != nil {
+				return err
+			}
+		}
+		if err := os.MkdirAll(backupDir, 0o755); err != nil {
+			return err
+		}
+		if err := os.Rename(sourcePath, filepath.Join(backupDir, entry.Name())); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func writeJSON(path string, v any) error {

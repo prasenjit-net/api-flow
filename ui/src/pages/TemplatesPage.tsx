@@ -1,9 +1,11 @@
 import { useEffect, useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
+import { Link, useParams } from 'react-router-dom'
 import Editor from '@monaco-editor/react'
-import { Plus, Trash2, Pencil, FileCode, X, Check } from 'lucide-react'
-import { templatesApi } from '../services/api'
-import type { Template } from '../types'
+import { Plus, Trash2, Pencil, FileCode, X, Check, ChevronLeft } from 'lucide-react'
+import { specsApi, templatesApi } from '../services/api'
+import type { Operation, Template } from '../types'
+import TemplateSeedModal, { type TemplateSeed } from '../components/templates/TemplateSeedModal'
 
 type FormState = { name: string; statusCode: number; body: string; headers: Record<string, string> }
 const empty = (): FormState => ({ name: '', statusCode: 200, body: '', headers: {} })
@@ -21,31 +23,40 @@ function useIsDark() {
 }
 
 interface EditorPanelProps {
+  specId: string
   editing: Template | null
+  seed: TemplateSeed | null
+  operations: Operation[]
   onClose: () => void
 }
 
-function TemplateEditorPanel({ editing, onClose }: EditorPanelProps) {
+function TemplateEditorPanel({ specId, editing, seed, operations, onClose }: EditorPanelProps) {
   const qc = useQueryClient()
   const isDark = useIsDark()
   const [form, setForm] = useState<FormState>(
     editing
       ? { name: editing.name, statusCode: editing.statusCode, body: editing.body, headers: { ...editing.headers } }
-      : empty(),
+      : seed
+        ? { name: seed.name, statusCode: seed.statusCode, body: seed.body, headers: { ...seed.headers } }
+        : empty(),
   )
   const [hKey, setHKey] = useState('')
   const [hVal, setHVal] = useState('')
   const [error, setError] = useState('')
 
   const createMutation = useMutation({
-    mutationFn: (t: FormState) => templatesApi.create(t),
-    onSuccess: () => { qc.invalidateQueries({ queryKey: ['templates'] }); onClose() },
+    mutationFn: (t: FormState) => templatesApi.create(specId, {
+      ...t,
+      operationId: seed?.operationId,
+      sourceExampleId: seed?.sourceExampleId,
+    }),
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ['templates', specId] }); onClose() },
     onError: (e: Error) => setError(e.message),
   })
 
   const updateMutation = useMutation({
-    mutationFn: ({ id, data }: { id: string; data: FormState }) => templatesApi.update(id, data),
-    onSuccess: () => { qc.invalidateQueries({ queryKey: ['templates'] }); onClose() },
+    mutationFn: ({ id, data }: { id: string; data: FormState }) => templatesApi.update(specId, id, data),
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ['templates', specId] }); onClose() },
     onError: (e: Error) => setError(e.message),
   })
 
@@ -68,6 +79,8 @@ function TemplateEditorPanel({ editing, onClose }: EditorPanelProps) {
   }
 
   const isBusy = createMutation.isPending || updateMutation.isPending
+  const operationId = editing?.operationId ?? seed?.operationId
+  const operation = operations.find(candidate => candidate.id === operationId)
 
   return (
     <div className="fixed inset-0 z-50 flex flex-col bg-white dark:bg-slate-900">
@@ -95,6 +108,14 @@ function TemplateEditorPanel({ editing, onClose }: EditorPanelProps) {
             className="w-16 rounded border border-slate-200 bg-slate-50 px-2 py-1 text-center font-mono text-xs text-slate-700 focus:border-blue-400 focus:outline-none focus:ring-1 focus:ring-blue-400 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-300"
           />
         </div>
+
+        <span className={`rounded-full px-2 py-0.5 text-[10px] font-semibold ${
+          operation
+            ? 'bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-300'
+            : 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300'
+        }`}>
+          {operation ? `${operation.method} ${operation.path}` : 'All operations'}
+        </span>
 
         {error && <span className="text-xs text-red-500">{error}</span>}
 
@@ -196,38 +217,59 @@ function TemplateEditorPanel({ editing, onClose }: EditorPanelProps) {
 }
 
 export default function TemplatesPage() {
+  const { specId } = useParams<{ specId: string }>()
   const qc = useQueryClient()
   const [editorOpen, setEditorOpen] = useState(false)
+  const [seedModalOpen, setSeedModalOpen] = useState(false)
   const [editingTemplate, setEditingTemplate] = useState<Template | null>(null)
+  const [templateSeed, setTemplateSeed] = useState<TemplateSeed | null>(null)
+
+  const { data: spec, isLoading: isSpecLoading, error: specError } = useQuery({
+    queryKey: ['specs', specId],
+    queryFn: () => specsApi.get(specId!),
+    enabled: !!specId,
+  })
 
   const { data: templates = [], isLoading } = useQuery({
-    queryKey: ['templates'],
-    queryFn: templatesApi.list,
+    queryKey: ['templates', specId],
+    queryFn: () => templatesApi.list(specId!),
+    enabled: !!specId,
   })
 
   const deleteMutation = useMutation({
-    mutationFn: templatesApi.delete,
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['templates'] }),
+    mutationFn: (templateId: string) => templatesApi.delete(specId!, templateId),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['templates', specId] }),
   })
 
   function openCreate() {
     setEditingTemplate(null)
-    setEditorOpen(true)
+    setTemplateSeed(null)
+    setSeedModalOpen(true)
   }
 
   function openEdit(t: Template) {
     setEditingTemplate(t)
+    setTemplateSeed(null)
     setEditorOpen(true)
   }
+
+  if (isSpecLoading) return <div className="flex h-40 items-center justify-center text-sm text-slate-400">Loading…</div>
+  if (specError || !spec || !specId) return <div className="flex h-40 items-center justify-center text-sm text-red-400">Failed to load specification.</div>
+
+  const operationByID = new Map(spec.operations.map(operation => [operation.id, operation]))
 
   return (
     <>
       <div className="flex h-full flex-col">
         {/* Page header */}
-        <div className="flex h-14 shrink-0 items-center justify-between border-b border-slate-200 px-6 dark:border-slate-800">
+        <div className="flex min-h-14 shrink-0 items-center justify-between gap-4 border-b border-slate-200 px-6 py-3 dark:border-slate-800">
           <div className="flex items-center gap-3">
+            <Link to="/templates" className="inline-flex items-center gap-1 text-xs text-slate-400 hover:text-slate-700 dark:hover:text-slate-200">
+              <ChevronLeft className="h-3.5 w-3.5" /> Templates
+            </Link>
+            <span className="text-slate-300 dark:text-slate-700">/</span>
             <FileCode className="h-4 w-4 text-slate-400" />
-            <span className="text-sm font-semibold text-slate-800 dark:text-slate-100">Templates</span>
+            <span className="text-sm font-semibold text-slate-800 dark:text-slate-100">{spec.name}</span>
             {!isLoading && (
               <span className="rounded bg-slate-100 px-2 py-0.5 text-xs text-slate-500 dark:bg-slate-800 dark:text-slate-400">
                 {templates.length}
@@ -258,8 +300,9 @@ export default function TemplatesPage() {
           ) : (
             <div>
               {/* Table header */}
-              <div className="grid grid-cols-[1fr_64px_120px_auto] items-center gap-4 border-b border-slate-200 bg-slate-50 px-6 py-2 text-[11px] font-semibold uppercase tracking-wider text-slate-400 dark:border-slate-800 dark:bg-slate-900">
+              <div className="grid grid-cols-[minmax(0,1fr)_minmax(180px,0.7fr)_64px_120px_auto] items-center gap-4 border-b border-slate-200 bg-slate-50 px-6 py-2 text-[11px] font-semibold uppercase tracking-wider text-slate-400 dark:border-slate-800 dark:bg-slate-900">
                 <span>Name</span>
+                <span>Scope</span>
                 <span>Status</span>
                 <span>Updated</span>
                 <span />
@@ -268,7 +311,7 @@ export default function TemplatesPage() {
                 {templates.map(t => (
                   <div
                     key={t.id}
-                    className="grid grid-cols-[1fr_64px_120px_auto] items-center gap-4 px-6 py-3 hover:bg-slate-50 dark:hover:bg-slate-900/50"
+                    className="grid grid-cols-[minmax(0,1fr)_minmax(180px,0.7fr)_64px_120px_auto] items-center gap-4 px-6 py-3 hover:bg-slate-50 dark:hover:bg-slate-900/50"
                   >
                     <div>
                       <button
@@ -289,6 +332,19 @@ export default function TemplatesPage() {
                         </div>
                       )}
                     </div>
+                    {t.operationId && operationByID.get(t.operationId) ? (
+                      <span className="min-w-0">
+                        <span className="block truncate text-xs font-medium text-amber-700 dark:text-amber-300">
+                          {operationByID.get(t.operationId)!.method} {operationByID.get(t.operationId)!.path}
+                        </span>
+                        <span className="text-[10px] text-slate-400">Operation only</span>
+                      </span>
+                    ) : (
+                      <span>
+                        <span className="block text-xs font-medium text-emerald-700 dark:text-emerald-300">All operations</span>
+                        <span className="text-[10px] text-slate-400">Reusable in this spec</span>
+                      </span>
+                    )}
                     <span className="rounded border border-slate-200 bg-slate-50 px-2 py-0.5 text-center font-mono text-xs font-semibold text-slate-600 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-400">
                       {t.statusCode}
                     </span>
@@ -321,8 +377,23 @@ export default function TemplatesPage() {
 
       {editorOpen && (
         <TemplateEditorPanel
+          specId={specId}
           editing={editingTemplate}
-          onClose={() => { setEditorOpen(false); setEditingTemplate(null) }}
+          seed={templateSeed}
+          operations={spec.operations}
+          onClose={() => { setEditorOpen(false); setEditingTemplate(null); setTemplateSeed(null) }}
+        />
+      )}
+      {seedModalOpen && (
+        <TemplateSeedModal
+          specId={specId}
+          operations={spec.operations}
+          onSelect={seed => {
+            setTemplateSeed(seed)
+            setSeedModalOpen(false)
+            setEditorOpen(true)
+          }}
+          onClose={() => setSeedModalOpen(false)}
         />
       )}
     </>

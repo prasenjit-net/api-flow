@@ -1,6 +1,6 @@
 import { Link, useParams } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
-import { ChevronLeft, GitBranch, CheckCircle2, FileJson } from 'lucide-react'
+import { ChevronLeft, GitBranch, CheckCircle2, FileCode, FileJson } from 'lucide-react'
 import { specsApi } from '../services/api'
 import MethodBadge from '../components/MethodBadge'
 
@@ -35,6 +35,13 @@ export default function SpecificationDetailPage() {
           {spec.operations.length} operations
         </span>
         <code className="ml-1 font-mono text-xs text-slate-400">{spec.contextPath}</code>
+        <Link
+          to={`/templates/${id}`}
+          className="ml-auto inline-flex items-center gap-1.5 rounded-lg border border-violet-200 px-3 py-1.5 text-xs font-semibold text-violet-700 hover:bg-violet-50 dark:border-violet-900/50 dark:text-violet-300 dark:hover:bg-violet-950/30"
+        >
+          <FileCode className="h-3.5 w-3.5" />
+          Templates
+        </Link>
       </div>
 
       {/* Operations table */}
