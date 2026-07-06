@@ -27,6 +27,7 @@ func NewRouter(cfg config.Config, logger *slog.Logger, build version.Info, s sto
 		r.Post("/", h.UploadSpec)
 		r.Get("/{id}", h.GetSpec)
 		r.Delete("/{id}", h.DeleteSpec)
+		r.Patch("/{id}/tracing", h.UpdateSpecTracing)
 		r.Get("/{id}/flows/{opId}", h.GetFlow)
 		r.Put("/{id}/flows/{opId}", h.SaveFlow)
 		r.Get("/{id}/templates", h.ListTemplates)
@@ -42,6 +43,13 @@ func NewRouter(cfg config.Config, logger *slog.Logger, build version.Info, s sto
 		r.Get("/{scriptId}", h.GetScript)
 		r.Put("/{scriptId}", h.UpdateScript)
 		r.Delete("/{scriptId}", h.DeleteScript)
+	})
+
+	r.Route("/traces", func(r chi.Router) {
+		r.Get("/", h.ListTraces)
+		r.Delete("/", h.DeleteAllTraces)
+		r.Get("/{traceId}", h.GetTrace)
+		r.Delete("/{traceId}", h.DeleteTrace)
 	})
 
 	logger.Debug("api router initialized")

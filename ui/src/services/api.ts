@@ -1,4 +1,4 @@
-import type { Flow, FlowValidationError, MetaResponse, Script, SpecDetail, SpecMeta, Template, TemplateExample } from '../types'
+import type { Flow, FlowValidationError, MetaResponse, Script, SpecDetail, SpecMeta, Template, TemplateExample, Trace, TraceSummary } from '../types'
 
 const BASE = import.meta.env.VITE_API_BASE || '/_api'
 
@@ -41,6 +41,12 @@ export const specsApi = {
     fetch(`${BASE}/specs/${id}`, { method: 'DELETE' }).then(r => {
       if (!r.ok) throw new Error(`HTTP ${r.status}`)
     }),
+  setTracing: (id: string, enabled: boolean) =>
+    fetch(`${BASE}/specs/${id}/tracing`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ enabled }),
+    }).then(r => handle<SpecMeta>(r)),
 }
 
 export const flowsApi = {
@@ -96,6 +102,25 @@ export const scriptsApi = {
     }).then(r => handle<Script>(r)),
   delete: (id: string) =>
     fetch(`${BASE}/scripts/${id}`, { method: 'DELETE' }).then(async response => {
+      if (!response.ok) await handle<never>(response)
+  }),
+}
+
+export const tracesApi = {
+  list: (filters?: { specId?: string; operationId?: string }) => {
+    const params = new URLSearchParams()
+    if (filters?.specId) params.set('specId', filters.specId)
+    if (filters?.operationId) params.set('operationId', filters.operationId)
+    const query = params.toString()
+    return fetch(`${BASE}/traces${query ? `?${query}` : ''}`).then(r => handle<TraceSummary[]>(r))
+  },
+  get: (id: string) => fetch(`${BASE}/traces/${id}`).then(r => handle<Trace>(r)),
+  delete: (id: string) =>
+    fetch(`${BASE}/traces/${id}`, { method: 'DELETE' }).then(async response => {
+      if (!response.ok) await handle<never>(response)
+    }),
+  deleteAll: () =>
+    fetch(`${BASE}/traces`, { method: 'DELETE' }).then(async response => {
       if (!response.ok) await handle<never>(response)
     }),
 }

@@ -15,7 +15,7 @@ type FileStore struct {
 }
 
 func New(dir string) (*FileStore, error) {
-	for _, sub := range []string{filepath.Join(dir, "specs"), filepath.Join(dir, "scripts")} {
+	for _, sub := range []string{filepath.Join(dir, "specs"), filepath.Join(dir, "scripts"), filepath.Join(dir, "traces")} {
 		if err := os.MkdirAll(sub, 0o755); err != nil {
 			return nil, fmt.Errorf("create data dir %s: %w", sub, err)
 		}
@@ -209,6 +209,67 @@ func (s *FileStore) DeleteScript(id string) error {
 		return nil
 	}
 	return err
+}
+
+func (s *FileStore) SaveTrace(trace domain.Trace) error {
+	if err := os.MkdirAll(filepath.Join(s.dir, "traces"), 0o755); err != nil {
+		return err
+	}
+	return writeJSON(filepath.Join(s.dir, "traces", trace.ID+".json"), trace)
+}
+
+func (s *FileStore) GetTrace(id string) (domain.Trace, error) {
+	var trace domain.Trace
+	return trace, readJSON(filepath.Join(s.dir, "traces", id+".json"), &trace)
+}
+
+func (s *FileStore) ListTraces() ([]domain.TraceSummary, error) {
+	dir := filepath.Join(s.dir, "traces")
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil, nil
+		}
+		return nil, err
+	}
+	result := make([]domain.TraceSummary, 0, len(entries))
+	for _, entry := range entries {
+		if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".json") {
+			continue
+		}
+		var trace domain.Trace
+		if err := readJSON(filepath.Join(dir, entry.Name()), &trace); err != nil {
+			continue
+		}
+		result = append(result, domain.TraceSummary{
+			ID:          trace.ID,
+			SpecID:      trace.SpecID,
+			OperationID: trace.OperationID,
+			Method:      trace.Method,
+			Path:        trace.Path,
+			StartedAt:   trace.StartedAt,
+			DurationMS:  trace.DurationMS,
+			StatusCode:  trace.StatusCode,
+			Error:       trace.Error,
+		})
+	}
+	return result, nil
+}
+
+func (s *FileStore) DeleteTrace(id string) error {
+	err := os.Remove(filepath.Join(s.dir, "traces", id+".json"))
+	if os.IsNotExist(err) {
+		return nil
+	}
+	return err
+}
+
+func (s *FileStore) DeleteAllTraces() error {
+	dir := filepath.Join(s.dir, "traces")
+	if err := os.RemoveAll(dir); err != nil {
+		return err
+	}
+	return os.MkdirAll(dir, 0o755)
 }
 
 // migrateGlobalTemplates copies templates from the pre-scope global directory

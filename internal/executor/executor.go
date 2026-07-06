@@ -25,14 +25,48 @@ func New(s store.Store) *Executor {
 
 func (e *Executor) Execute(w http.ResponseWriter, r *http.Request, flow domain.Flow, pathParams map[string]string) {
 	flow = domain.NormalizeFlow(flow)
-	if validationErrors := domain.ValidateFlow(flow); len(validationErrors) > 0 {
-		http.Error(w, fmt.Sprintf("invalid workflow: %s", validationErrors[0].Message), http.StatusInternalServerError)
+
+	var responseRecorder *traceResponseWriter
+	tracingEnabled := false
+	if meta, err := e.store.GetSpecMeta(flow.SpecID); err == nil {
+		tracingEnabled = meta.TracingEnabled
+	}
+	if tracingEnabled {
+		responseRecorder = newTraceResponseWriter(w)
+		w = responseRecorder
+	}
+
+	var traceErr string
+	ctx, err := buildRequestContext(r, pathParams)
+	if ctx == nil {
+		ctx = map[string]any{}
+	}
+	var recorder *traceRecorder
+	if tracingEnabled {
+		recorder = newTraceRecorder(flow, r, ctx)
+		defer func() {
+			errText := traceErr
+			if errText == "" && responseRecorder != nil && responseRecorder.statusCode >= http.StatusBadRequest {
+				if body := strings.TrimSpace(responseRecorder.body.String()); body != "" {
+					errText = body
+				}
+			}
+			_ = e.store.SaveTrace(recorder.finish(ctx, responseRecorder, errText))
+		}()
+	}
+
+	fail := func(status int, msg string) {
+		traceErr = msg
+		http.Error(w, msg, status)
+	}
+
+	if err != nil {
+		fail(http.StatusInternalServerError, fmt.Sprintf("context error: %v", err))
 		return
 	}
 
-	ctx, err := buildRequestContext(r, pathParams)
-	if err != nil {
-		http.Error(w, fmt.Sprintf("context error: %v", err), http.StatusInternalServerError)
+	if validationErrors := domain.ValidateFlow(flow); len(validationErrors) > 0 {
+		fail(http.StatusInternalServerError, fmt.Sprintf("invalid workflow: %s", validationErrors[0].Message))
 		return
 	}
 
@@ -50,7 +84,7 @@ func (e *Executor) Execute(w http.ResponseWriter, r *http.Request, flow domain.F
 		outgoing[edge.Source] = append(outgoing[edge.Source], edge)
 	}
 	if startNode == nil {
-		http.Error(w, "invalid workflow: start node is missing", http.StatusInternalServerError)
+		fail(http.StatusInternalServerError, "invalid workflow: start node is missing")
 		return
 	}
 
@@ -60,58 +94,77 @@ func (e *Executor) Execute(w http.ResponseWriter, r *http.Request, flow domain.F
 
 	for {
 		if visited[current.ID] {
-			http.Error(w, "workflow execution encountered a cycle", http.StatusInternalServerError)
+			fail(http.StatusInternalServerError, "workflow execution encountered a cycle")
 			return
 		}
 		visited[current.ID] = true
 
+		nodeStartedAt := time.Now().UTC()
+		var nodeInput map[string]any
+		var nodeOutput any
+		var nodeErr error
 		switch current.Type {
 		case domain.NodeTypeStart:
 		case domain.NodeTypeContextMapper:
-			input := buildNodeInput(current, ctx)
-			contextNodes(ctx)[current.Data.Name] = input
+			nodeInput = buildNodeInput(current, ctx)
+			nodeOutput = nodeInput
+			contextNodes(ctx)[current.Data.Name] = nodeOutput
 		case domain.NodeTypeStarlark:
-			input := buildNodeInput(current, ctx)
+			nodeInput = buildNodeInput(current, ctx)
 			script, err := e.store.GetScript(current.Data.ScriptID)
 			if err != nil {
-				http.Error(w, fmt.Sprintf("script %q not found", current.Data.ScriptID), http.StatusInternalServerError)
+				nodeErr = fmt.Errorf("script %q not found", current.Data.ScriptID)
+				recorder.recordNode(current, nodeStartedAt, nodeInput, nil, nodeErr)
+				fail(http.StatusInternalServerError, nodeErr.Error())
 				return
 			}
-			output, err := ExecuteStarlark(r.Context(), current.Data.Name, script.Source, input)
+			output, err := ExecuteStarlark(r.Context(), current.Data.Name, script.Source, nodeInput)
 			if err != nil {
-				http.Error(w, fmt.Sprintf("Starlark node %q failed: %v", current.Data.Name, err), http.StatusInternalServerError)
+				nodeErr = fmt.Errorf("Starlark node %q failed: %v", current.Data.Name, err)
+				recorder.recordNode(current, nodeStartedAt, nodeInput, nil, nodeErr)
+				fail(http.StatusInternalServerError, nodeErr.Error())
 				return
 			}
-			contextNodes(ctx)[current.Data.Name] = output
+			nodeOutput = output
+			contextNodes(ctx)[current.Data.Name] = nodeOutput
 		case domain.NodeTypeTemplate:
-			templateContext := buildTemplateContext(current, ctx)
-			candidate, output, err := e.executeTemplate(flow.SpecID, flow.OperationID, current, templateContext)
+			nodeInput = buildTemplateContext(current, ctx)
+			candidate, output, err := e.executeTemplate(flow.SpecID, flow.OperationID, current, nodeInput)
 			if err != nil {
-				http.Error(w, err.Error(), http.StatusInternalServerError)
+				nodeErr = err
+				recorder.recordNode(current, nodeStartedAt, nodeInput, nil, nodeErr)
+				fail(http.StatusInternalServerError, err.Error())
 				return
 			}
 			response = candidate
-			contextNodes(ctx)[current.Data.Name] = output
+			nodeOutput = output
+			contextNodes(ctx)[current.Data.Name] = nodeOutput
 		case domain.NodeTypeEnd:
 			if response == nil {
-				http.Error(w, "workflow ended without producing a response", http.StatusInternalServerError)
+				nodeErr = fmt.Errorf("workflow ended without producing a response")
+				recorder.recordNode(current, nodeStartedAt, nodeInput, nil, nodeErr)
+				fail(http.StatusInternalServerError, nodeErr.Error())
 				return
 			}
+			recorder.recordNode(current, nodeStartedAt, nodeInput, nodeOutput, nil)
 			writeResponse(w, *response)
 			return
 		default:
-			http.Error(w, fmt.Sprintf("unsupported node type %q", current.Type), http.StatusInternalServerError)
+			nodeErr = fmt.Errorf("unsupported node type %q", current.Type)
+			recorder.recordNode(current, nodeStartedAt, nodeInput, nil, nodeErr)
+			fail(http.StatusInternalServerError, nodeErr.Error())
 			return
 		}
+		recorder.recordNode(current, nodeStartedAt, nodeInput, nodeOutput, nil)
 
-		edge, err := selectOutgoingEdge(outgoing[current.ID], ctx)
+		edge, err := selectOutgoingEdge(outgoing[current.ID], ctx, recorder)
 		if err != nil {
-			http.Error(w, fmt.Sprintf("branch evaluation error: %v", err), http.StatusInternalServerError)
+			fail(http.StatusInternalServerError, fmt.Sprintf("branch evaluation error: %v", err))
 			return
 		}
 		next, exists := nodesByID[edge.Target]
 		if !exists {
-			http.Error(w, fmt.Sprintf("workflow target node %q not found", edge.Target), http.StatusInternalServerError)
+			fail(http.StatusInternalServerError, fmt.Sprintf("workflow target node %q not found", edge.Target))
 			return
 		}
 		current = next
@@ -255,7 +308,7 @@ func buildTemplateContext(node domain.Node, context map[string]any) map[string]a
 	return view
 }
 
-func selectOutgoingEdge(edges []domain.Edge, context map[string]any) (domain.Edge, error) {
+func selectOutgoingEdge(edges []domain.Edge, context map[string]any, recorder *traceRecorder) (domain.Edge, error) {
 	var fallback *domain.Edge
 	conditional := make([]domain.Edge, 0, len(edges))
 	for i := range edges {
@@ -272,8 +325,10 @@ func selectOutgoingEdge(edges []domain.Edge, context map[string]any) (domain.Edg
 	for _, edge := range conditional {
 		matched, err := EvaluateCondition(*edge.Condition, context)
 		if err != nil {
+			recorder.recordEdge(edge, false, false, err)
 			return domain.Edge{}, fmt.Errorf("edge %q: %w", edge.ID, err)
 		}
+		recorder.recordEdge(edge, matched, matched, nil)
 		if matched {
 			return edge, nil
 		}
@@ -281,6 +336,7 @@ func selectOutgoingEdge(edges []domain.Edge, context map[string]any) (domain.Edg
 	if fallback == nil {
 		return domain.Edge{}, fmt.Errorf("no condition matched and no unconditional fallback edge exists")
 	}
+	recorder.recordEdge(*fallback, true, true, nil)
 	return *fallback, nil
 }
 

@@ -6,6 +6,8 @@ import FlowEditorPage from './pages/FlowEditorPage'
 import TemplatesPage from './pages/TemplatesPage'
 import TemplatesIndexPage from './pages/TemplatesIndexPage'
 import ScriptsPage from './pages/ScriptsPage'
+import TracesPage from './pages/TracesPage'
+import TraceDetailPage from './pages/TraceDetailPage'
 
 function App() {
   return (
@@ -18,6 +20,8 @@ function App() {
         <Route path="templates" element={<TemplatesIndexPage />} />
         <Route path="templates/:specId" element={<TemplatesPage />} />
         <Route path="scripts" element={<ScriptsPage />} />
+        <Route path="traces" element={<TracesPage />} />
+        <Route path="traces/:traceId" element={<TraceDetailPage />} />
       </Route>
     </Routes>
   )

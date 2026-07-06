@@ -29,4 +29,10 @@ type Store interface {
 	GetScript(id string) (domain.Script, error)
 	ListScripts() ([]domain.Script, error)
 	DeleteScript(id string) error
+
+	SaveTrace(trace domain.Trace) error
+	GetTrace(id string) (domain.Trace, error)
+	ListTraces() ([]domain.TraceSummary, error)
+	DeleteTrace(id string) error
+	DeleteAllTraces() error
 }

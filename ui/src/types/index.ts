@@ -3,6 +3,7 @@ export interface SpecMeta {
   name: string
   contextPath: string
   uploadedAt: string
+  tracingEnabled: boolean
 }
 
 export interface Operation {
@@ -133,4 +134,61 @@ export interface MetaResponse {
   url: string
   uiProxy: string
   version: { version: string; commit: string; buildDate: string }
+}
+
+export interface TraceHTTPMessage {
+  method?: string
+  url?: string
+  path?: Record<string, unknown>
+  query?: Record<string, unknown>
+  headers?: Record<string, unknown>
+  body?: unknown
+  bodySize?: number
+  bodyTruncated?: boolean
+  statusCode?: number
+}
+
+export interface TraceNode {
+  id: string
+  name: string
+  type: NodeType
+  startedAt: string
+  finishedAt: string
+  durationMs: number
+  input?: Record<string, unknown>
+  output?: unknown
+  error?: string
+}
+
+export interface TraceEdge {
+  id: string
+  source: string
+  target: string
+  priority?: number
+  condition?: Condition
+  unconditional: boolean
+  matched: boolean
+  selected: boolean
+  error?: string
+}
+
+export interface TraceSummary {
+  id: string
+  specId: string
+  operationId: string
+  method: string
+  path: string
+  startedAt: string
+  durationMs: number
+  statusCode: number
+  error?: string
+}
+
+export interface Trace extends TraceSummary {
+  finishedAt: string
+  request: TraceHTTPMessage
+  response: TraceHTTPMessage
+  context: Record<string, unknown>
+  nodes: TraceNode[]
+  edges: TraceEdge[]
 }

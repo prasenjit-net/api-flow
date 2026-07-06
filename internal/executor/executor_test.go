@@ -132,6 +132,68 @@ func TestExecuteAppendsStarlarkOutputToContext(t *testing.T) {
 	}
 }
 
+func TestExecuteSavesTraceWhenSpecTracingEnabled(t *testing.T) {
+	dataStore, err := store.New(t.TempDir())
+	if err != nil {
+		t.Fatalf("create store: %v", err)
+	}
+	if err := dataStore.SaveSpecMeta(domain.SpecMeta{ID: "customer-spec", Name: "Customers", TracingEnabled: true}); err != nil {
+		t.Fatalf("save spec meta: %v", err)
+	}
+	if err := dataStore.SaveTemplate("customer-spec", domain.Template{
+		ID:         "vip-template",
+		SpecID:     "customer-spec",
+		StatusCode: http.StatusAccepted,
+		Body:       `vip {{.name}}`,
+		Headers:    map[string]string{"X-Branch": "vip"},
+	}); err != nil {
+		t.Fatalf("save template: %v", err)
+	}
+
+	request := httptest.NewRequest(http.MethodPost, "/customers", strings.NewReader(`{"tier":"vip","name":"Asha"}`))
+	response := httptest.NewRecorder()
+	New(dataStore).Execute(response, request, executableBranchingFlow(), nil)
+
+	if response.Code != http.StatusAccepted {
+		t.Fatalf("unexpected response status: %d", response.Code)
+	}
+	traces, err := dataStore.ListTraces()
+	if err != nil {
+		t.Fatalf("list traces: %v", err)
+	}
+	if len(traces) != 1 {
+		t.Fatalf("expected one trace, got %d", len(traces))
+	}
+	trace, err := dataStore.GetTrace(traces[0].ID)
+	if err != nil {
+		t.Fatalf("get trace: %v", err)
+	}
+	if trace.SpecID != "customer-spec" || trace.OperationID != "create-customer" {
+		t.Fatalf("unexpected trace target: %#v", trace)
+	}
+	if trace.Request.Body == nil || trace.Response.Body != "vip Asha" {
+		t.Fatalf("trace did not capture request/response bodies: request=%#v response=%#v", trace.Request.Body, trace.Response.Body)
+	}
+	if trace.StatusCode != http.StatusAccepted || trace.DurationMS < 0 {
+		t.Fatalf("unexpected trace status/timing: status=%d duration=%d", trace.StatusCode, trace.DurationMS)
+	}
+	if len(trace.Nodes) == 0 {
+		t.Fatal("expected node traces")
+	}
+	if _, ok := trace.Context["nodes"]; !ok {
+		t.Fatalf("expected final context nodes, got %#v", trace.Context)
+	}
+	var selectedConditional bool
+	for _, edge := range trace.Edges {
+		if edge.ID == "route-vip" && edge.Selected && edge.Matched {
+			selectedConditional = true
+		}
+	}
+	if !selectedConditional {
+		t.Fatalf("expected selected route-vip edge, got %#v", trace.Edges)
+	}
+}
+
 func executableBranchingFlow() domain.Flow {
 	return domain.Flow{
 		Version:     domain.CurrentFlowVersion,

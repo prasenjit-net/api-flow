@@ -1,16 +1,24 @@
 import { Link, useParams } from 'react-router-dom'
-import { useQuery } from '@tanstack/react-query'
-import { ChevronLeft, GitBranch, CheckCircle2, FileCode, FileJson } from 'lucide-react'
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { ChevronLeft, GitBranch, CheckCircle2, FileCode, FileJson, Activity } from 'lucide-react'
 import { specsApi } from '../services/api'
 import MethodBadge from '../components/MethodBadge'
 
 export default function SpecificationDetailPage() {
   const { id } = useParams<{ id: string }>()
+  const qc = useQueryClient()
 
   const { data: spec, isLoading, error } = useQuery({
     queryKey: ['specs', id],
     queryFn: () => specsApi.get(id!),
     enabled: !!id,
+  })
+  const tracingMutation = useMutation({
+    mutationFn: (enabled: boolean) => specsApi.setTracing(id!, enabled),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['specs', id] })
+      qc.invalidateQueries({ queryKey: ['specs'] })
+    },
   })
 
   if (isLoading) return <div className="flex h-40 items-center justify-center text-sm text-slate-400">Loading…</div>
@@ -35,9 +43,22 @@ export default function SpecificationDetailPage() {
           {spec.operations.length} operations
         </span>
         <code className="ml-1 font-mono text-xs text-slate-400">{spec.contextPath}</code>
+        <button
+          type="button"
+          onClick={() => tracingMutation.mutate(!spec.tracingEnabled)}
+          disabled={tracingMutation.isPending}
+          className={`ml-auto inline-flex items-center gap-1.5 rounded-lg border px-3 py-1.5 text-xs font-semibold transition-colors ${
+            spec.tracingEnabled
+              ? 'border-emerald-200 bg-emerald-50 text-emerald-700 hover:bg-emerald-100 dark:border-emerald-900/50 dark:bg-emerald-950/30 dark:text-emerald-300'
+              : 'border-slate-200 text-slate-500 hover:bg-slate-50 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800'
+          }`}
+        >
+          <Activity className="h-3.5 w-3.5" />
+          Tracing {spec.tracingEnabled ? 'on' : 'off'}
+        </button>
         <Link
           to={`/templates/${id}`}
-          className="ml-auto inline-flex items-center gap-1.5 rounded-lg border border-violet-200 px-3 py-1.5 text-xs font-semibold text-violet-700 hover:bg-violet-50 dark:border-violet-900/50 dark:text-violet-300 dark:hover:bg-violet-950/30"
+          className="inline-flex items-center gap-1.5 rounded-lg border border-violet-200 px-3 py-1.5 text-xs font-semibold text-violet-700 hover:bg-violet-50 dark:border-violet-900/50 dark:text-violet-300 dark:hover:bg-violet-950/30"
         >
           <FileCode className="h-3.5 w-3.5" />
           Templates

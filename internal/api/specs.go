@@ -1,6 +1,7 @@
 package api
 
 import (
+	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
@@ -144,6 +145,33 @@ func (h *Handler) DeleteSpec(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
+}
+
+func (h *Handler) UpdateSpecTracing(w http.ResponseWriter, r *http.Request) {
+	id := chi.URLParam(r, "id")
+	meta, err := h.store.GetSpecMeta(id)
+	if err == store.ErrNotFound {
+		respondError(w, http.StatusNotFound, "spec not found")
+		return
+	}
+	if err != nil {
+		respondError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	var payload struct {
+		Enabled bool `json:"enabled"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+		respondError(w, http.StatusBadRequest, "invalid tracing payload")
+		return
+	}
+	meta.TracingEnabled = payload.Enabled
+	if err := h.store.SaveSpecMeta(meta); err != nil {
+		respondError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	respondJSON(w, http.StatusOK, meta)
 }
 
 func (h *Handler) parseOperations(specID string) ([]domain.Operation, error) {
