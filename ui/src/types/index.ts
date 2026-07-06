@@ -115,6 +115,7 @@ export interface Flow {
   operationId: string
   nodes: FlowNode[]
   edges: FlowEdge[]
+  viewport: { x: number; y: number; zoom: number }
 }
 
 export interface FlowValidationError {

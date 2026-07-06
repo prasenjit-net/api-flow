@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import {
@@ -76,7 +76,8 @@ function editorEdge(edge: FlowEdge): Edge<FlowEdgeData> {
 function FlowEditor() {
   const { id: specId, opId } = useParams<{ id: string; opId: string }>()
   const qc = useQueryClient()
-  const { updateNodeData } = useReactFlow()
+  const { getViewport, setViewport, updateNodeData } = useReactFlow()
+  const restoredViewportFor = useRef('')
   const [saved, setSaved] = useState(false)
   const [editingNode, setEditingNode] = useState<EditingNode | null>(null)
   const [editingEdge, setEditingEdge] = useState<EditingEdge | null>(null)
@@ -126,7 +127,12 @@ function FlowEditor() {
     })
     setNodes(enriched as Node[])
     setEdges((flowData.edges ?? []).map(editorEdge))
-  }, [flowData, scripts, templates, setNodes, setEdges])
+    const flowKey = `${flowData.specId}:${flowData.operationId}`
+    if (flowData.viewport?.zoom > 0 && restoredViewportFor.current !== flowKey) {
+      restoredViewportFor.current = flowKey
+      requestAnimationFrame(() => setViewport(flowData.viewport))
+    }
+  }, [flowData, scripts, templates, setNodes, setEdges, setViewport])
 
   useEffect(() => {
     setNodes(ns =>
@@ -212,6 +218,7 @@ function FlowEditor() {
       version: 3,
       specId: specId!,
       operationId: opId!,
+      viewport: getViewport(),
       nodes: nodes.map(n => {
         const rest = { ...n.data } as Record<string, unknown>
         delete rest._templates

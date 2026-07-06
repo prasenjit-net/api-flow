@@ -11,11 +11,12 @@ const CurrentFlowVersion = 3
 var NodeNamePattern = regexp.MustCompile(`^[a-z0-9][a-z0-9_-]{0,63}$`)
 
 type Flow struct {
-	Version     int    `json:"version"`
-	SpecID      string `json:"specId"`
-	OperationID string `json:"operationId"`
-	Nodes       []Node `json:"nodes"`
-	Edges       []Edge `json:"edges"`
+	Version     int      `json:"version"`
+	SpecID      string   `json:"specId"`
+	OperationID string   `json:"operationId"`
+	Nodes       []Node   `json:"nodes"`
+	Edges       []Edge   `json:"edges"`
+	Viewport    Viewport `json:"viewport"`
 }
 
 type NodeType string
@@ -38,6 +39,12 @@ type Node struct {
 type Position struct {
 	X float64 `json:"x"`
 	Y float64 `json:"y"`
+}
+
+type Viewport struct {
+	X    float64 `json:"x"`
+	Y    float64 `json:"y"`
+	Zoom float64 `json:"zoom"`
 }
 
 type NodeData struct {
