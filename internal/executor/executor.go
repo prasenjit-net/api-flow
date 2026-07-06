@@ -70,9 +70,22 @@ func (e *Executor) Execute(w http.ResponseWriter, r *http.Request, flow domain.F
 		case domain.NodeTypeContextMapper:
 			input := buildNodeInput(current, ctx)
 			contextNodes(ctx)[current.Data.Name] = input
-		case domain.NodeTypeTemplate:
+		case domain.NodeTypeStarlark:
 			input := buildNodeInput(current, ctx)
-			candidate, output, err := e.executeTemplate(flow.SpecID, flow.OperationID, current, input)
+			script, err := e.store.GetScript(current.Data.ScriptID)
+			if err != nil {
+				http.Error(w, fmt.Sprintf("script %q not found", current.Data.ScriptID), http.StatusInternalServerError)
+				return
+			}
+			output, err := ExecuteStarlark(r.Context(), current.Data.Name, script.Source, input)
+			if err != nil {
+				http.Error(w, fmt.Sprintf("Starlark node %q failed: %v", current.Data.Name, err), http.StatusInternalServerError)
+				return
+			}
+			contextNodes(ctx)[current.Data.Name] = output
+		case domain.NodeTypeTemplate:
+			templateContext := buildTemplateContext(current, ctx)
+			candidate, output, err := e.executeTemplate(flow.SpecID, flow.OperationID, current, templateContext)
 			if err != nil {
 				http.Error(w, err.Error(), http.StatusInternalServerError)
 				return
@@ -222,6 +235,24 @@ func buildNodeInput(node domain.Node, context map[string]any) map[string]any {
 		input[mapping.Key] = value
 	}
 	return input
+}
+
+// buildTemplateContext is the sole full-context exception to the mapped-only
+// input policy used by executable nodes. Legacy mappings are retained as
+// root-level aliases so existing templates continue to render during migration.
+func buildTemplateContext(node domain.Node, context map[string]any) map[string]any {
+	view := make(map[string]any, len(context)+len(node.Data.Mappings))
+	for key, value := range context {
+		view[key] = value
+	}
+	for _, mapping := range node.Data.Mappings {
+		value, exists := ResolveContextPath(context, mapping.Source)
+		if !exists {
+			value = nil
+		}
+		view[mapping.Key] = value
+	}
+	return view
 }
 
 func selectOutgoingEdge(edges []domain.Edge, context map[string]any) (domain.Edge, error) {

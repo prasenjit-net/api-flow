@@ -36,6 +36,14 @@ func NewRouter(cfg config.Config, logger *slog.Logger, build version.Info, s sto
 		r.Get("/{id}/operations/{opId}/response-examples", h.ListResponseExamples)
 	})
 
+	r.Route("/scripts", func(r chi.Router) {
+		r.Get("/", h.ListScripts)
+		r.Post("/", h.CreateScript)
+		r.Get("/{scriptId}", h.GetScript)
+		r.Put("/{scriptId}", h.UpdateScript)
+		r.Delete("/{scriptId}", h.DeleteScript)
+	})
+
 	logger.Debug("api router initialized")
 	return r
 }

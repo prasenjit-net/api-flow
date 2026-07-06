@@ -15,7 +15,7 @@ type FileStore struct {
 }
 
 func New(dir string) (*FileStore, error) {
-	for _, sub := range []string{filepath.Join(dir, "specs")} {
+	for _, sub := range []string{filepath.Join(dir, "specs"), filepath.Join(dir, "scripts")} {
 		if err := os.MkdirAll(sub, 0o755); err != nil {
 			return nil, fmt.Errorf("create data dir %s: %w", sub, err)
 		}
@@ -162,6 +162,49 @@ func (s *FileStore) ListTemplates(specID string) ([]domain.Template, error) {
 
 func (s *FileStore) DeleteTemplate(specID, id string) error {
 	err := os.Remove(filepath.Join(s.dir, "specs", specID, "templates", id+".json"))
+	if os.IsNotExist(err) {
+		return nil
+	}
+	return err
+}
+
+func (s *FileStore) SaveScript(script domain.Script) error {
+	if err := os.MkdirAll(filepath.Join(s.dir, "scripts"), 0o755); err != nil {
+		return err
+	}
+	return writeJSON(filepath.Join(s.dir, "scripts", script.ID+".json"), script)
+}
+
+func (s *FileStore) GetScript(id string) (domain.Script, error) {
+	var script domain.Script
+	return script, readJSON(filepath.Join(s.dir, "scripts", id+".json"), &script)
+}
+
+func (s *FileStore) ListScripts() ([]domain.Script, error) {
+	dir := filepath.Join(s.dir, "scripts")
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil, nil
+		}
+		return nil, err
+	}
+	var result []domain.Script
+	for _, entry := range entries {
+		if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".json") {
+			continue
+		}
+		var script domain.Script
+		if err := readJSON(filepath.Join(dir, entry.Name()), &script); err != nil {
+			continue
+		}
+		result = append(result, script)
+	}
+	return result, nil
+}
+
+func (s *FileStore) DeleteScript(id string) error {
+	err := os.Remove(filepath.Join(s.dir, "scripts", id+".json"))
 	if os.IsNotExist(err) {
 		return nil
 	}

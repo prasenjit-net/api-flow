@@ -3,19 +3,20 @@ module github.com/prasenjit-net/api-flow
 go 1.25
 
 require (
+	github.com/getkin/kin-openapi v0.140.0
 	github.com/go-chi/chi/v5 v5.2.3
 	github.com/go-viper/mapstructure/v2 v2.4.0
+	github.com/google/uuid v1.6.0
 	github.com/joho/godotenv v1.5.1
 	github.com/spf13/cobra v1.10.1
 	github.com/spf13/viper v1.21.0
+	go.starlark.net v0.0.0-20260210143700-b62fd896b91b
 )
 
 require (
 	github.com/fsnotify/fsnotify v1.9.0 // indirect
-	github.com/getkin/kin-openapi v0.140.0 // indirect
 	github.com/go-openapi/jsonpointer v0.22.5 // indirect
 	github.com/go-openapi/swag/jsonname v0.25.5 // indirect
-	github.com/google/uuid v1.6.0 // indirect
 	github.com/inconshreveable/mousetrap v1.1.0 // indirect
 	github.com/oasdiff/yaml v0.1.0 // indirect
 	github.com/oasdiff/yaml3 v0.0.13 // indirect

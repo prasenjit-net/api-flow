@@ -41,7 +41,7 @@ export default function TemplateNodeModal({
         <div className="flex items-center justify-between border-b border-slate-200 px-5 py-3.5 dark:border-slate-800">
           <div>
             <h2 className="text-sm font-semibold text-slate-800 dark:text-slate-100">Template Node</h2>
-            <p className="mt-0.5 text-xs text-slate-500">Select a response template</p>
+            <p className="mt-0.5 text-xs text-slate-500">Templates receive the complete request and accumulated node context.</p>
           </div>
           <button type="button" onClick={onClose} className="rounded p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-600 dark:hover:bg-slate-800">
             <X className="h-4 w-4" />
@@ -77,8 +77,8 @@ export default function TemplateNodeModal({
           <div>
             <div className="mb-2 flex items-end justify-between gap-3">
               <div>
-                <p className="text-xs font-medium text-slate-600 dark:text-slate-400">Template inputs</p>
-                <p className="mt-0.5 text-[11px] text-slate-400">The template can only read these mapped variables.</p>
+                <p className="text-xs font-medium text-slate-600 dark:text-slate-400">Optional root aliases</p>
+                <p className="mt-0.5 text-[11px] text-slate-400">Mappings add convenience variables; full request and nodes context is always available.</p>
               </div>
             </div>
             <div className="space-y-2">

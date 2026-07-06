@@ -41,6 +41,15 @@ export interface TemplateExample {
   headers: Record<string, string>
 }
 
+export interface Script {
+  id: string
+  name: string
+  description: string
+  source: string
+  createdAt: string
+  updatedAt: string
+}
+
 export interface Mapping {
   source: string
   key: string
@@ -50,6 +59,7 @@ export interface NodeData {
   name: string
   mappings?: Mapping[]
   templateId?: string
+  scriptId?: string
 }
 
 export type LogicalOperator = 'and' | 'or' | 'not'
@@ -82,7 +92,7 @@ export type Condition =
       valueType?: 'string' | 'number' | 'boolean' | 'null'
     }
 
-export type NodeType = 'start' | 'contextMapper' | 'template' | 'end'
+export type NodeType = 'start' | 'contextMapper' | 'starlark' | 'template' | 'end'
 
 export interface FlowNode {
   id: string

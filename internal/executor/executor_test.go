@@ -17,7 +17,7 @@ func TestExecuteSelectsOneTemplateAndUsesScopedInput(t *testing.T) {
 	}
 	for _, responseTemplate := range []domain.Template{
 		{ID: "vip-template", SpecID: "customer-spec", StatusCode: http.StatusAccepted, Body: `vip {{.name}}`, Headers: map[string]string{"X-Branch": "vip"}},
-		{ID: "default-template", SpecID: "customer-spec", StatusCode: http.StatusOK, Body: `default {{.name}}`, Headers: map[string]string{"X-Branch": "default"}},
+		{ID: "default-template", SpecID: "customer-spec", StatusCode: http.StatusOK, Body: `default {{.request.body.name}}`, Headers: map[string]string{"X-Branch": "default"}},
 	} {
 		if err := dataStore.SaveTemplate("customer-spec", responseTemplate); err != nil {
 			t.Fatalf("save template: %v", err)
@@ -73,6 +73,62 @@ func TestExecuteRejectsTemplateScopedToAnotherOperation(t *testing.T) {
 	}
 	if !strings.Contains(response.Body.String(), "scoped to operation") {
 		t.Fatalf("expected operation scope error, got %q", response.Body.String())
+	}
+}
+
+func TestExecuteAppendsStarlarkOutputToContext(t *testing.T) {
+	dataStore, err := store.New(t.TempDir())
+	if err != nil {
+		t.Fatalf("create store: %v", err)
+	}
+	if err := dataStore.SaveScript(domain.Script{
+		ID:     "double-script",
+		Name:   "Double",
+		Source: "def run(input):\n    return {\"doubled\": input[\"amount\"] * 2}\n",
+	}); err != nil {
+		t.Fatalf("save script: %v", err)
+	}
+	if err := dataStore.SaveTemplate("math-spec", domain.Template{
+		ID:         "response-template",
+		SpecID:     "math-spec",
+		Name:       "Response",
+		StatusCode: http.StatusOK,
+		Body:       `{{index .nodes "calculate" "doubled"}}`,
+		Headers:    map[string]string{},
+	}); err != nil {
+		t.Fatalf("save template: %v", err)
+	}
+	flow := domain.Flow{
+		Version:     domain.CurrentFlowVersion,
+		SpecID:      "math-spec",
+		OperationID: "post-math",
+		Nodes: []domain.Node{
+			{ID: "start", Type: domain.NodeTypeStart, Data: domain.NodeData{Name: "start"}},
+			{
+				ID:   "calculate",
+				Type: domain.NodeTypeStarlark,
+				Data: domain.NodeData{
+					Name:     "calculate",
+					ScriptID: "double-script",
+					Mappings: []domain.Mapping{{Source: "request.body.amount", Key: "amount"}},
+				},
+			},
+			{ID: "response", Type: domain.NodeTypeTemplate, Data: domain.NodeData{Name: "response", TemplateID: "response-template"}},
+			{ID: "end", Type: domain.NodeTypeEnd, Data: domain.NodeData{Name: "end"}},
+		},
+		Edges: []domain.Edge{
+			{ID: "start-calculate", Source: "start", Target: "calculate"},
+			{ID: "calculate-response", Source: "calculate", Target: "response"},
+			{ID: "response-end", Source: "response", Target: "end"},
+		},
+	}
+	request := httptest.NewRequest(http.MethodPost, "/math", strings.NewReader(`{"amount":21}`))
+	response := httptest.NewRecorder()
+
+	New(dataStore).Execute(response, request, flow, nil)
+
+	if response.Code != http.StatusOK || response.Body.String() != "42" {
+		t.Fatalf("unexpected response: status=%d body=%q", response.Code, response.Body.String())
 	}
 }
 

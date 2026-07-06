@@ -19,7 +19,7 @@ import {
 import '@xyflow/react/dist/style.css'
 import { AlertCircle, ChevronLeft, Save, Plus, CheckCircle2 } from 'lucide-react'
 
-import { ApiError, flowsApi, templatesApi, specsApi } from '../services/api'
+import { ApiError, flowsApi, scriptsApi, templatesApi, specsApi } from '../services/api'
 import type { Condition, Flow, FlowEdge, FlowValidationError, Mapping } from '../types'
 import StartNode from '../components/flow/StartNode'
 import EndNode from '../components/flow/EndNode'
@@ -27,6 +27,8 @@ import ContextMapperNode from '../components/flow/ContextMapperNode'
 import TemplateNode from '../components/flow/TemplateNode'
 import ContextMapperModal from '../components/flow/ContextMapperModal'
 import TemplateNodeModal from '../components/flow/TemplateNodeModal'
+import StarlarkNode from '../components/flow/StarlarkNode'
+import StarlarkNodeModal from '../components/flow/StarlarkNodeModal'
 import EdgeConditionModal from '../components/flow/EdgeConditionModal'
 import { summarizeCondition } from '../components/flow/edgeConditions'
 
@@ -34,11 +36,13 @@ const nodeTypes = {
   start: StartNode,
   end: EndNode,
   contextMapper: ContextMapperNode,
+  starlark: StarlarkNode,
   template: TemplateNode,
 }
 
 type EditingNode =
   | { type: 'contextMapper'; id: string; name: string; mappings: Mapping[] }
+  | { type: 'starlark'; id: string; name: string; scriptId: string; mappings: Mapping[] }
   | { type: 'template'; id: string; name: string; templateId: string; mappings: Mapping[] }
 
 type FlowEdgeData = Record<string, unknown> & {
@@ -91,6 +95,11 @@ function FlowEditor() {
     enabled: !!specId && !!opId,
   })
 
+  const { data: scripts = [] } = useQuery({
+    queryKey: ['scripts'],
+    queryFn: scriptsApi.list,
+  })
+
   const { data: spec } = useQuery({
     queryKey: ['specs', specId],
     queryFn: () => specsApi.get(specId!),
@@ -110,18 +119,26 @@ function FlowEditor() {
   useEffect(() => {
     if (!flowData) return
     if (!flowData.nodes || flowData.nodes.length === 0) return
-    const enriched = flowData.nodes.map(n =>
-      n.type === 'template' ? { ...n, data: { ...n.data, _templates: templates } } : n,
-    )
+    const enriched = flowData.nodes.map(n => {
+      if (n.type === 'template') return { ...n, data: { ...n.data, _templates: templates } }
+      if (n.type === 'starlark') return { ...n, data: { ...n.data, _scripts: scripts } }
+      return n
+    })
     setNodes(enriched as Node[])
     setEdges((flowData.edges ?? []).map(editorEdge))
-  }, [flowData, templates, setNodes, setEdges])
+  }, [flowData, scripts, templates, setNodes, setEdges])
 
   useEffect(() => {
     setNodes(ns =>
       ns.map(n => n.type === 'template' ? { ...n, data: { ...n.data, _templates: templates } } : n),
     )
   }, [templates, setNodes])
+
+  useEffect(() => {
+    setNodes(current =>
+      current.map(node => node.type === 'starlark' ? { ...node, data: { ...node.data, _scripts: scripts } } : node),
+    )
+  }, [scripts, setNodes])
 
   const onConnect = useCallback(
     (connection: Connection) => setEdges(eds => {
@@ -140,6 +157,15 @@ function FlowEditor() {
     if (node.type === 'contextMapper') {
       const data = node.data as { name?: string; mappings?: Mapping[] }
       setEditingNode({ type: 'contextMapper', id: node.id, name: data.name ?? '', mappings: data.mappings ?? [] })
+    } else if (node.type === 'starlark') {
+      const data = node.data as { name?: string; scriptId?: string; mappings?: Mapping[] }
+      setEditingNode({
+        type: 'starlark',
+        id: node.id,
+        name: data.name ?? '',
+        scriptId: data.scriptId ?? '',
+        mappings: data.mappings ?? [],
+      })
     } else if (node.type === 'template') {
       const data = node.data as { name?: string; templateId?: string; mappings?: Mapping[] }
       setEditingNode({
@@ -183,12 +209,13 @@ function FlowEditor() {
 
   function handleSave() {
     const flow: Flow = {
-      version: 2,
+      version: 3,
       specId: specId!,
       operationId: opId!,
       nodes: nodes.map(n => {
         const rest = { ...n.data } as Record<string, unknown>
         delete rest._templates
+        delete rest._scripts
         return {
           id: n.id,
           type: n.type as Flow['nodes'][number]['type'],
@@ -217,6 +244,17 @@ function FlowEditor() {
     const id = `template-${Date.now()}`
     const name = nextNodeName('template', nodes)
     setNodes(ns => [...ns, { id, type: 'template', position: { x: 460, y: 180 + ns.length * 15 }, data: { name, templateId: '', mappings: [], _templates: templates } }])
+  }
+
+  function addStarlarkNode() {
+    const id = `starlark-${Date.now()}`
+    const name = nextNodeName('script', nodes)
+    setNodes(current => [...current, {
+      id,
+      type: 'starlark',
+      position: { x: 380, y: 170 + current.length * 15 },
+      data: { name, scriptId: '', mappings: [], _scripts: scripts },
+    }])
   }
 
   function updateEdgeCondition(id: string, condition: Condition | undefined, priority: number) {
@@ -281,6 +319,14 @@ function FlowEditor() {
           >
               <Plus className="h-4 w-4" />
               Template
+          </button>
+          <button
+            type="button"
+            onClick={addStarlarkNode}
+            className="inline-flex items-center gap-2 rounded-lg border border-amber-200 px-3 py-2 text-xs font-semibold text-amber-700 transition-colors hover:bg-amber-50 dark:border-amber-900/40 dark:text-amber-300 dark:hover:bg-amber-950/20"
+          >
+            <Plus className="h-4 w-4" />
+            Starlark
           </button>
           <button
             type="button"
@@ -355,6 +401,19 @@ function FlowEditor() {
           templates={templates}
           onSave={(name, templateId, mappings) => {
             updateNodeData(editingNode.id, { name, templateId, mappings, _templates: templates })
+            setEditingNode(null)
+          }}
+          onClose={() => setEditingNode(null)}
+        />
+      )}
+      {editingNode?.type === 'starlark' && (
+        <StarlarkNodeModal
+          name={editingNode.name}
+          scriptId={editingNode.scriptId}
+          mappings={editingNode.mappings}
+          scripts={scripts}
+          onSave={(name, scriptId, mappings) => {
+            updateNodeData(editingNode.id, { name, scriptId, mappings, _scripts: scripts })
             setEditingNode(null)
           }}
           onClose={() => setEditingNode(null)}

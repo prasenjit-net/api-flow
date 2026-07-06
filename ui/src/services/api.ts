@@ -1,4 +1,4 @@
-import type { Flow, FlowValidationError, MetaResponse, SpecDetail, SpecMeta, Template, TemplateExample } from '../types'
+import type { Flow, FlowValidationError, MetaResponse, Script, SpecDetail, SpecMeta, Template, TemplateExample } from '../types'
 
 const BASE = import.meta.env.VITE_API_BASE || '/_api'
 
@@ -77,4 +77,25 @@ export const templatesApi = {
     }),
   examples: (specId: string, operationId: string) =>
     fetch(`${BASE}/specs/${specId}/operations/${operationId}/response-examples`).then(r => handle<TemplateExample[]>(r)),
+}
+
+export const scriptsApi = {
+  list: () => fetch(`${BASE}/scripts`).then(r => handle<Script[]>(r)),
+  get: (id: string) => fetch(`${BASE}/scripts/${id}`).then(r => handle<Script>(r)),
+  create: (script: Pick<Script, 'name' | 'description' | 'source'>) =>
+    fetch(`${BASE}/scripts`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(script),
+    }).then(r => handle<Script>(r)),
+  update: (id: string, script: Pick<Script, 'name' | 'description' | 'source'>) =>
+    fetch(`${BASE}/scripts/${id}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(script),
+    }).then(r => handle<Script>(r)),
+  delete: (id: string) =>
+    fetch(`${BASE}/scripts/${id}`, { method: 'DELETE' }).then(async response => {
+      if (!response.ok) await handle<never>(response)
+    }),
 }

@@ -6,7 +6,7 @@ import (
 	"strings"
 )
 
-const CurrentFlowVersion = 2
+const CurrentFlowVersion = 3
 
 var NodeNamePattern = regexp.MustCompile(`^[a-z0-9][a-z0-9_-]{0,63}$`)
 
@@ -23,6 +23,7 @@ type NodeType string
 const (
 	NodeTypeStart         NodeType = "start"
 	NodeTypeContextMapper NodeType = "contextMapper"
+	NodeTypeStarlark      NodeType = "starlark"
 	NodeTypeTemplate      NodeType = "template"
 	NodeTypeEnd           NodeType = "end"
 )
@@ -42,6 +43,7 @@ type Position struct {
 type NodeData struct {
 	Mappings   []Mapping `json:"mappings,omitempty"`
 	TemplateID string    `json:"templateId,omitempty"`
+	ScriptID   string    `json:"scriptId,omitempty"`
 	Name       string    `json:"name"`
 }
 
@@ -107,36 +109,38 @@ func NormalizeFlow(flow Flow) Flow {
 		return flow
 	}
 
-	usedNames := make(map[string]struct{}, len(flow.Nodes))
-	for i := range flow.Nodes {
-		node := &flow.Nodes[i]
-		base := sanitizeNodeName(node.ID)
-		if node.Type == NodeTypeStart {
-			base = "start"
-		} else if node.Type == NodeTypeEnd {
-			base = "end"
+	if flow.Version < 2 {
+		usedNames := make(map[string]struct{}, len(flow.Nodes))
+		for i := range flow.Nodes {
+			node := &flow.Nodes[i]
+			base := sanitizeNodeName(node.ID)
+			if node.Type == NodeTypeStart {
+				base = "start"
+			} else if node.Type == NodeTypeEnd {
+				base = "end"
+			}
+			node.Data.Name = uniqueNodeName(base, usedNames)
+			for j := range node.Data.Mappings {
+				node.Data.Mappings[j].Source = normalizeLegacySource(node.Data.Mappings[j].Source)
+			}
 		}
-		node.Data.Name = uniqueNodeName(base, usedNames)
-		for j := range node.Data.Mappings {
-			node.Data.Mappings[j].Source = normalizeLegacySource(node.Data.Mappings[j].Source)
-		}
-	}
 
-	// Legacy templates saw one flat context assembled from every mapper. Create
-	// explicit template inputs so a linear legacy flow keeps that behavior.
-	for i := range flow.Nodes {
-		if flow.Nodes[i].Type != NodeTypeTemplate || len(flow.Nodes[i].Data.Mappings) > 0 {
-			continue
-		}
-		for _, mapper := range flow.Nodes {
-			if mapper.Type != NodeTypeContextMapper {
+		// Legacy templates saw one flat context assembled from every mapper.
+		// Preserve those keys as aliases alongside the new full context.
+		for i := range flow.Nodes {
+			if flow.Nodes[i].Type != NodeTypeTemplate || len(flow.Nodes[i].Data.Mappings) > 0 {
 				continue
 			}
-			for _, mapping := range mapper.Data.Mappings {
-				flow.Nodes[i].Data.Mappings = append(flow.Nodes[i].Data.Mappings, Mapping{
-					Source: fmt.Sprintf("nodes.%s.%s", mapper.Data.Name, mapping.Key),
-					Key:    mapping.Key,
-				})
+			for _, mapper := range flow.Nodes {
+				if mapper.Type != NodeTypeContextMapper {
+					continue
+				}
+				for _, mapping := range mapper.Data.Mappings {
+					flow.Nodes[i].Data.Mappings = append(flow.Nodes[i].Data.Mappings, Mapping{
+						Source: fmt.Sprintf("nodes.%s.%s", mapper.Data.Name, mapping.Key),
+						Key:    mapping.Key,
+					})
+				}
 			}
 		}
 	}

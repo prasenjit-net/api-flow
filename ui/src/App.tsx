@@ -5,6 +5,7 @@ import SpecificationDetailPage from './pages/SpecificationDetailPage'
 import FlowEditorPage from './pages/FlowEditorPage'
 import TemplatesPage from './pages/TemplatesPage'
 import TemplatesIndexPage from './pages/TemplatesIndexPage'
+import ScriptsPage from './pages/ScriptsPage'
 
 function App() {
   return (
@@ -16,6 +17,7 @@ function App() {
         <Route path="specifications/:id/operations/:opId" element={<FlowEditorPage />} />
         <Route path="templates" element={<TemplatesIndexPage />} />
         <Route path="templates/:specId" element={<TemplatesPage />} />
+        <Route path="scripts" element={<ScriptsPage />} />
       </Route>
     </Routes>
   )

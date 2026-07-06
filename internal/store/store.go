@@ -24,4 +24,9 @@ type Store interface {
 	GetTemplate(specID, id string) (domain.Template, error)
 	ListTemplates(specID string) ([]domain.Template, error)
 	DeleteTemplate(specID, id string) error
+
+	SaveScript(script domain.Script) error
+	GetScript(id string) (domain.Script, error)
+	ListScripts() ([]domain.Script, error)
+	DeleteScript(id string) error
 }

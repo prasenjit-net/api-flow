@@ -48,6 +48,17 @@ func TestValidateFlowRejectsOutputThatDoesNotDominateConsumer(t *testing.T) {
 	}
 }
 
+func TestValidateFlowRequiresScriptOnStarlarkNode(t *testing.T) {
+	flow := validBranchingFlow()
+	flow.Nodes[1].Type = NodeTypeStarlark
+	flow.Nodes[1].Data.ScriptID = ""
+
+	issues := ValidateFlow(flow)
+	if !hasValidationCode(issues, "script_required") {
+		t.Fatalf("expected script-required error, got %#v", issues)
+	}
+}
+
 func validBranchingFlow() Flow {
 	return Flow{
 		Version: CurrentFlowVersion,

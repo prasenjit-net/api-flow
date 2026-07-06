@@ -86,6 +86,26 @@ make build
 
 The binary contains the compiled React app. No separate Node.js server is required in production.
 
+## Node Execution Contract
+
+All current and future executable node types use mapped-only input by default:
+
+- A node receives only variables explicitly configured in its input mappings.
+- A node returns an output value; the workflow engine appends it at `nodes.<node-name>`.
+- Node implementations do not receive or mutate the full execution context.
+- Start and End are structural nodes and do not execute user data.
+
+Template is the only full-context exception. It receives the complete `request` and accumulated `nodes` context. Existing Template mappings are retained as root-level aliases for compatibility.
+
+Starlark nodes link to globally managed scripts and remain mapped-only. A script must define:
+
+```python
+def run(input):
+    return {"value": input.get("value")}
+```
+
+Starlark scripts have no filesystem, network, process, environment, or module-loading access. Their JSON-compatible return value is appended to context under the node name.
+
 ## Configuration
 
 Configuration is loaded in this order:

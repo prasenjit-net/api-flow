@@ -61,6 +61,10 @@ func ValidateFlow(flow Flow) []FlowValidationError {
 		case NodeTypeEnd:
 			endIDs = append(endIDs, node.ID)
 		case NodeTypeContextMapper:
+		case NodeTypeStarlark:
+			if strings.TrimSpace(node.Data.ScriptID) == "" {
+				add(FlowValidationError{Code: "script_required", Message: "Starlark node must select a script", NodeID: node.ID, Field: "data.scriptId"})
+			}
 		case NodeTypeTemplate:
 			if strings.TrimSpace(node.Data.TemplateID) == "" {
 				add(FlowValidationError{Code: "template_required", Message: "template node must select a template", NodeID: node.ID, Field: "data.templateId"})
