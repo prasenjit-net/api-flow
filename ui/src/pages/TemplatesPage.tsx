@@ -1,11 +1,12 @@
 import { useEffect, useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { Link, useParams } from 'react-router-dom'
+import { Link, useLocation, useNavigate, useParams } from 'react-router-dom'
 import Editor from '@monaco-editor/react'
-import { Plus, Trash2, Pencil, FileCode, X, Check, ChevronLeft } from 'lucide-react'
+import { Plus, Trash2, Pencil, FileCode, X, Check, ChevronLeft, Wand2 } from 'lucide-react'
 import { specsApi, templatesApi } from '../services/api'
 import type { Operation, Template } from '../types'
 import TemplateSeedModal, { type TemplateSeed } from '../components/templates/TemplateSeedModal'
+import { apiFlowTemplateLanguage, configureTemplateEditor, prettifyTemplateBody } from '../components/editor/monacoLanguages'
 
 type FormState = { name: string; statusCode: number; body: string; headers: Record<string, string> }
 const empty = (): FormState => ({ name: '', statusCode: 200, body: '', headers: {} })
@@ -83,7 +84,7 @@ function TemplateEditorPanel({ specId, editing, seed, operations, onClose }: Edi
   const operation = operations.find(candidate => candidate.id === operationId)
 
   return (
-    <div className="fixed inset-0 z-50 flex flex-col bg-white dark:bg-slate-900">
+    <div className="flex h-full flex-col bg-white dark:bg-slate-900">
       {/* Top bar */}
       <div className="flex h-12 shrink-0 items-center gap-3 border-b border-slate-200 px-4 dark:border-slate-800">
         <button type="button" onClick={onClose} className="rounded p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-600 dark:hover:bg-slate-800">
@@ -138,15 +139,25 @@ function TemplateEditorPanel({ specId, editing, seed, operations, onClose }: Edi
       <div className="flex min-h-0 flex-1">
         {/* Monaco */}
         <div className="flex min-w-0 flex-1 flex-col">
-          <div className="flex h-8 shrink-0 items-center border-b border-slate-100 bg-slate-50 px-4 dark:border-slate-800 dark:bg-slate-900">
+          <div className="flex h-8 shrink-0 items-center justify-between border-b border-slate-100 bg-slate-50 px-4 dark:border-slate-800 dark:bg-slate-900">
             <span className="text-[11px] font-medium uppercase tracking-wider text-slate-400">Body · Go template</span>
+            <button
+              type="button"
+              onClick={() => setForm(f => ({ ...f, body: prettifyTemplateBody(f.body) }))}
+              className="inline-flex items-center gap-1 rounded border border-slate-200 bg-white px-2 py-0.5 text-[11px] font-medium text-slate-500 hover:border-blue-200 hover:text-blue-600 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-300 dark:hover:border-blue-800 dark:hover:text-blue-300"
+            >
+              <Wand2 className="h-3 w-3" />
+              Prettify
+            </button>
           </div>
           <div className="flex-1">
             <Editor
               height="100%"
-              defaultLanguage="plaintext"
+              defaultLanguage={apiFlowTemplateLanguage}
+              language={apiFlowTemplateLanguage}
               value={form.body}
               onChange={v => setForm(f => ({ ...f, body: v ?? '' }))}
+              beforeMount={configureTemplateEditor}
               theme={isDark ? 'vs-dark' : 'light'}
               options={{
                 minimap: { enabled: false },
@@ -216,13 +227,46 @@ function TemplateEditorPanel({ specId, editing, seed, operations, onClose }: Edi
   )
 }
 
+export function TemplateEditorPage() {
+  const { specId, templateId } = useParams<{ specId: string; templateId?: string }>()
+  const navigate = useNavigate()
+  const location = useLocation()
+  const seed = (location.state as { seed?: TemplateSeed } | null)?.seed ?? null
+
+  const { data: spec, isLoading: isSpecLoading, error: specError } = useQuery({
+    queryKey: ['specs', specId],
+    queryFn: () => specsApi.get(specId!),
+    enabled: !!specId,
+  })
+  const { data: templates = [], isLoading: isTemplateLoading, error: templateError } = useQuery({
+    queryKey: ['templates', specId],
+    queryFn: () => templatesApi.list(specId!),
+    enabled: !!specId && !!templateId,
+  })
+
+  if (isSpecLoading || isTemplateLoading) return <div className="flex h-40 items-center justify-center text-sm text-slate-400">Loading…</div>
+  if (specError || !spec || !specId) return <div className="flex h-40 items-center justify-center text-sm text-red-400">Failed to load specification.</div>
+  if (templateError) return <div className="flex h-40 items-center justify-center text-sm text-red-400">Failed to load template.</div>
+
+  const editing = templateId ? templates.find(template => template.id === templateId) : null
+  if (templateId && !editing) return <div className="flex h-40 items-center justify-center text-sm text-red-400">Template not found.</div>
+
+  return (
+    <TemplateEditorPanel
+      specId={specId}
+      editing={editing ?? null}
+      seed={seed}
+      operations={spec.operations}
+      onClose={() => navigate(`/templates/${specId}`)}
+    />
+  )
+}
+
 export default function TemplatesPage() {
   const { specId } = useParams<{ specId: string }>()
   const qc = useQueryClient()
-  const [editorOpen, setEditorOpen] = useState(false)
+  const navigate = useNavigate()
   const [seedModalOpen, setSeedModalOpen] = useState(false)
-  const [editingTemplate, setEditingTemplate] = useState<Template | null>(null)
-  const [templateSeed, setTemplateSeed] = useState<TemplateSeed | null>(null)
 
   const { data: spec, isLoading: isSpecLoading, error: specError } = useQuery({
     queryKey: ['specs', specId],
@@ -242,15 +286,11 @@ export default function TemplatesPage() {
   })
 
   function openCreate() {
-    setEditingTemplate(null)
-    setTemplateSeed(null)
     setSeedModalOpen(true)
   }
 
   function openEdit(t: Template) {
-    setEditingTemplate(t)
-    setTemplateSeed(null)
-    setEditorOpen(true)
+    navigate(`/templates/${specId}/edit/${t.id}`)
   }
 
   if (isSpecLoading) return <div className="flex h-40 items-center justify-center text-sm text-slate-400">Loading…</div>
@@ -375,25 +415,17 @@ export default function TemplatesPage() {
         </div>
       </div>
 
-      {editorOpen && (
-        <TemplateEditorPanel
-          specId={specId}
-          editing={editingTemplate}
-          seed={templateSeed}
-          operations={spec.operations}
-          onClose={() => { setEditorOpen(false); setEditingTemplate(null); setTemplateSeed(null) }}
-        />
-      )}
       {seedModalOpen && (
         <TemplateSeedModal
           specId={specId}
           operations={spec.operations}
           onSelect={seed => {
-            setTemplateSeed(seed)
             setSeedModalOpen(false)
-            setEditorOpen(true)
+            navigate(`/templates/${specId}/new`, { state: { seed } })
           }}
-          onClose={() => setSeedModalOpen(false)}
+          onClose={() => {
+            setSeedModalOpen(false)
+          }}
         />
       )}
     </>

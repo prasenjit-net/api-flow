@@ -1,9 +1,11 @@
 import { useEffect, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import Editor from '@monaco-editor/react'
-import { Code2, Pencil, Plus, Trash2, X } from 'lucide-react'
+import { Code2, Pencil, Plus, Trash2, Wand2, X } from 'lucide-react'
+import { useNavigate, useParams } from 'react-router-dom'
 import { scriptsApi } from '../services/api'
 import type { Script } from '../types'
+import { configureStarlarkEditor, prettifyScriptSource } from '../components/editor/monacoLanguages'
 
 const starterSource = `def run(input):
     # Only explicitly mapped variables are available in input.
@@ -42,7 +44,7 @@ function ScriptEditor({ editing, onClose }: { editing: Script | null; onClose: (
   })
 
   return (
-    <div className="fixed inset-0 z-50 flex flex-col bg-white dark:bg-slate-900">
+    <div className="flex h-full flex-col bg-white dark:bg-slate-900">
       <div className="flex min-h-14 shrink-0 items-center gap-3 border-b border-slate-200 px-4 py-2 dark:border-slate-800">
         <button type="button" onClick={onClose} className="rounded p-1.5 text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800">
           <X className="h-4 w-4" />
@@ -61,6 +63,14 @@ function ScriptEditor({ editing, onClose }: { editing: Script | null; onClose: (
           className="min-w-0 flex-1 rounded border border-transparent bg-transparent px-2 py-1 text-xs text-slate-600 focus:border-slate-300 focus:bg-slate-50 focus:outline-none dark:text-slate-300 dark:focus:border-slate-700 dark:focus:bg-slate-800"
         />
         {error && <span className="max-w-sm truncate text-xs text-red-500">{error}</span>}
+        <button
+          type="button"
+          onClick={() => setSource(current => prettifyScriptSource(current))}
+          className="inline-flex items-center gap-1 rounded border border-slate-200 px-3 py-1.5 text-xs text-slate-600 hover:bg-slate-50 hover:text-blue-600 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800 dark:hover:text-blue-300"
+        >
+          <Wand2 className="h-3.5 w-3.5" />
+          Prettify
+        </button>
         <button type="button" onClick={onClose} className="rounded border border-slate-200 px-3 py-1.5 text-xs text-slate-600 hover:bg-slate-50 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800">
           Discard
         </button>
@@ -82,8 +92,10 @@ function ScriptEditor({ editing, onClose }: { editing: Script | null; onClose: (
           <Editor
             height="100%"
             defaultLanguage="python"
+            language="python"
             value={source}
             onChange={value => setSource(value ?? '')}
+            beforeMount={configureStarlarkEditor}
             theme={isDark ? 'vs-dark' : 'light'}
             options={{
               minimap: { enabled: false },
@@ -110,9 +122,24 @@ function ScriptEditor({ editing, onClose }: { editing: Script | null; onClose: (
   )
 }
 
+export function ScriptEditorPage() {
+  const { scriptId } = useParams<{ scriptId?: string }>()
+  const navigate = useNavigate()
+  const { data: script, isLoading, error } = useQuery({
+    queryKey: ['scripts', scriptId],
+    queryFn: () => scriptsApi.get(scriptId!),
+    enabled: !!scriptId,
+  })
+
+  if (scriptId && isLoading) return <div className="flex h-40 items-center justify-center text-sm text-slate-400">Loading…</div>
+  if (scriptId && (error || !script)) return <div className="flex h-40 items-center justify-center text-sm text-red-400">Failed to load script.</div>
+
+  return <ScriptEditor editing={scriptId ? script! : null} onClose={() => navigate('/scripts')} />
+}
+
 export default function ScriptsPage() {
   const qc = useQueryClient()
-  const [editing, setEditing] = useState<Script | null | undefined>(undefined)
+  const navigate = useNavigate()
   const [deleteError, setDeleteError] = useState('')
   const { data: scripts = [], isLoading } = useQuery({
     queryKey: ['scripts'],
@@ -136,7 +163,7 @@ export default function ScriptsPage() {
             <span className="text-sm font-semibold text-slate-800 dark:text-slate-100">Scripts</span>
             {!isLoading && <span className="rounded bg-slate-100 px-2 py-0.5 text-xs text-slate-500 dark:bg-slate-800 dark:text-slate-400">{scripts.length}</span>}
           </div>
-          <button type="button" onClick={() => setEditing(null)} className="flex items-center gap-1.5 rounded bg-blue-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-blue-700">
+          <button type="button" onClick={() => navigate('/scripts/new')} className="flex items-center gap-1.5 rounded bg-blue-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-blue-700">
             <Plus className="h-3.5 w-3.5" /> New Script
           </button>
         </div>
@@ -150,7 +177,7 @@ export default function ScriptsPage() {
             <div className="flex h-60 flex-col items-center justify-center gap-3">
               <Code2 className="h-8 w-8 text-slate-300 dark:text-slate-600" />
               <p className="text-sm text-slate-500">No Starlark scripts yet</p>
-              <button type="button" onClick={() => setEditing(null)} className="text-sm text-blue-600 hover:underline dark:text-blue-400">Create your first script</button>
+              <button type="button" onClick={() => navigate('/scripts/new')} className="text-sm text-blue-600 hover:underline dark:text-blue-400">Create your first script</button>
             </div>
           ) : (
             <div>
@@ -163,11 +190,11 @@ export default function ScriptsPage() {
               <div className="divide-y divide-slate-100 dark:divide-slate-800/60">
                 {scripts.map(script => (
                   <div key={script.id} className="grid grid-cols-[1fr_1fr_120px_auto] items-center gap-4 px-6 py-3 hover:bg-slate-50 dark:hover:bg-slate-900/50">
-                    <button type="button" onClick={() => setEditing(script)} className="text-left text-sm font-medium text-slate-800 hover:text-blue-600 dark:text-slate-200 dark:hover:text-blue-400">{script.name}</button>
+                    <button type="button" onClick={() => navigate(`/scripts/${script.id}/edit`)} className="text-left text-sm font-medium text-slate-800 hover:text-blue-600 dark:text-slate-200 dark:hover:text-blue-400">{script.name}</button>
                     <span className="truncate text-xs text-slate-500 dark:text-slate-400">{script.description || '—'}</span>
                     <span className="text-xs text-slate-400">{new Date(script.updatedAt).toLocaleDateString()}</span>
                     <div className="flex items-center gap-1">
-                      <button type="button" onClick={() => setEditing(script)} className="rounded p-1.5 text-slate-400 hover:bg-slate-100 hover:text-slate-600 dark:hover:bg-slate-800">
+                      <button type="button" onClick={() => navigate(`/scripts/${script.id}/edit`)} className="rounded p-1.5 text-slate-400 hover:bg-slate-100 hover:text-slate-600 dark:hover:bg-slate-800">
                         <Pencil className="h-3.5 w-3.5" />
                       </button>
                       <button
@@ -187,8 +214,6 @@ export default function ScriptsPage() {
           )}
         </div>
       </div>
-
-      {editing !== undefined && <ScriptEditor editing={editing} onClose={() => setEditing(undefined)} />}
     </>
   )
 }

@@ -4,9 +4,9 @@ import OverviewPage from './pages/OverviewPage'
 import SpecificationsPage from './pages/SpecificationsPage'
 import SpecificationDetailPage from './pages/SpecificationDetailPage'
 import FlowEditorPage from './pages/FlowEditorPage'
-import TemplatesPage from './pages/TemplatesPage'
+import TemplatesPage, { TemplateEditorPage } from './pages/TemplatesPage'
 import TemplatesIndexPage from './pages/TemplatesIndexPage'
-import ScriptsPage from './pages/ScriptsPage'
+import ScriptsPage, { ScriptEditorPage } from './pages/ScriptsPage'
 import TracesPage from './pages/TracesPage'
 import TraceDetailPage from './pages/TraceDetailPage'
 
@@ -21,7 +21,11 @@ function App() {
         <Route path="specifications/:id/operations/:opId" element={<FlowEditorPage />} />
         <Route path="templates" element={<TemplatesIndexPage />} />
         <Route path="templates/:specId" element={<TemplatesPage />} />
+        <Route path="templates/:specId/new" element={<TemplateEditorPage />} />
+        <Route path="templates/:specId/edit/:templateId" element={<TemplateEditorPage />} />
         <Route path="scripts" element={<ScriptsPage />} />
+        <Route path="scripts/new" element={<ScriptEditorPage />} />
+        <Route path="scripts/:scriptId/edit" element={<ScriptEditorPage />} />
         <Route path="traces" element={<TracesPage />} />
         <Route path="traces/:traceId" element={<TraceDetailPage />} />
       </Route>
