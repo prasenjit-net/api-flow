@@ -185,6 +185,143 @@ func TestExecuteUsesConstantMappedInputs(t *testing.T) {
 	}
 }
 
+func TestExecuteTemplateSupportsContextPathShorthand(t *testing.T) {
+	dataStore, err := store.New(t.TempDir())
+	if err != nil {
+		t.Fatalf("create store: %v", err)
+	}
+	if err := dataStore.SaveTemplate("customer-spec", domain.Template{
+		ID:         "shorthand-template",
+		SpecID:     "customer-spec",
+		StatusCode: http.StatusOK,
+		Body:       `{"name":"{{nodes.script-1.value}}","id":"{{request.path.petId}}"}`,
+		Headers:    map[string]string{},
+	}); err != nil {
+		t.Fatalf("save template: %v", err)
+	}
+
+	flow := domain.Flow{
+		Version:     domain.CurrentFlowVersion,
+		SpecID:      "customer-spec",
+		OperationID: "get_pet",
+		Nodes: []domain.Node{
+			{ID: "start", Type: domain.NodeTypeStart, Data: domain.NodeData{Name: "start"}},
+			{
+				ID:   "script",
+				Type: domain.NodeTypeContextMapper,
+				Data: domain.NodeData{
+					Name: "script-1",
+					Mappings: []domain.Mapping{{
+						Type:      "constant",
+						Key:       "value",
+						Value:     "Momo",
+						ValueType: "string",
+					}},
+				},
+			},
+			{ID: "response", Type: domain.NodeTypeTemplate, Data: domain.NodeData{Name: "response", TemplateID: "shorthand-template"}},
+			{ID: "end", Type: domain.NodeTypeEnd, Data: domain.NodeData{Name: "end"}},
+		},
+		Edges: []domain.Edge{
+			{ID: "start-script", Source: "start", Target: "script"},
+			{ID: "script-response", Source: "script", Target: "response"},
+			{ID: "response-end", Source: "response", Target: "end"},
+		},
+	}
+	request := httptest.NewRequest(http.MethodGet, "/pets/a1", nil)
+	response := httptest.NewRecorder()
+
+	New(dataStore).Execute(response, request, flow, map[string]string{"petId": "a1"})
+
+	if response.Code != http.StatusOK || response.Body.String() != `{"name":"Momo","id":"a1"}` {
+		t.Fatalf("unexpected response: status=%d body=%q", response.Code, response.Body.String())
+	}
+}
+
+func TestExecuteUsesOpenAPIExampleWhenNoTemplateRendered(t *testing.T) {
+	dataStore, err := store.New(t.TempDir())
+	if err != nil {
+		t.Fatalf("create store: %v", err)
+	}
+	if err := dataStore.SaveSpecFile("fallback-spec", []byte(fallbackExampleSpec)); err != nil {
+		t.Fatalf("save spec file: %v", err)
+	}
+
+	request := httptest.NewRequest(http.MethodGet, "/fallback?name=Asha", nil)
+	response := httptest.NewRecorder()
+	New(dataStore).Execute(response, request, flowWithoutTemplate("fallback-spec", "get_fallback"), nil)
+
+	if response.Code != http.StatusOK {
+		t.Fatalf("expected example response status 200, got %d: %s", response.Code, response.Body.String())
+	}
+	if response.Body.String() != "hello Asha" {
+		t.Fatalf("expected rendered example body, got %q", response.Body.String())
+	}
+	if got := response.Header().Get("Content-Type"); got != "text/plain" {
+		t.Fatalf("expected example content type, got %q", got)
+	}
+}
+
+func TestExecuteReturns404WhenNoTemplateOrExampleExists(t *testing.T) {
+	dataStore, err := store.New(t.TempDir())
+	if err != nil {
+		t.Fatalf("create store: %v", err)
+	}
+	if err := dataStore.SaveSpecFile("fallback-spec", []byte(fallbackExampleSpec)); err != nil {
+		t.Fatalf("save spec file: %v", err)
+	}
+
+	request := httptest.NewRequest(http.MethodGet, "/empty", nil)
+	response := httptest.NewRecorder()
+	New(dataStore).Execute(response, request, flowWithoutTemplate("fallback-spec", "get_empty"), nil)
+
+	if response.Code != http.StatusNotFound {
+		t.Fatalf("expected 404 when no response source exists, got %d: %s", response.Code, response.Body.String())
+	}
+}
+
+func TestExecuteUsesLastTemplateResponseWhenMultipleTemplatesRun(t *testing.T) {
+	dataStore, err := store.New(t.TempDir())
+	if err != nil {
+		t.Fatalf("create store: %v", err)
+	}
+	for _, template := range []domain.Template{
+		{ID: "first-template", SpecID: "multi-spec", StatusCode: http.StatusAccepted, Body: "first", Headers: map[string]string{"X-Template": "first"}},
+		{ID: "second-template", SpecID: "multi-spec", StatusCode: http.StatusCreated, Body: "second", Headers: map[string]string{"X-Template": "second"}},
+	} {
+		if err := dataStore.SaveTemplate("multi-spec", template); err != nil {
+			t.Fatalf("save template: %v", err)
+		}
+	}
+
+	flow := domain.Flow{
+		Version:     domain.CurrentFlowVersion,
+		SpecID:      "multi-spec",
+		OperationID: "get_multi",
+		Nodes: []domain.Node{
+			{ID: "start", Type: domain.NodeTypeStart, Data: domain.NodeData{Name: "start"}},
+			{ID: "first", Type: domain.NodeTypeTemplate, Data: domain.NodeData{Name: "first", TemplateID: "first-template"}},
+			{ID: "second", Type: domain.NodeTypeTemplate, Data: domain.NodeData{Name: "second", TemplateID: "second-template"}},
+			{ID: "end", Type: domain.NodeTypeEnd, Data: domain.NodeData{Name: "end"}},
+		},
+		Edges: []domain.Edge{
+			{ID: "start-first", Source: "start", Target: "first"},
+			{ID: "first-second", Source: "first", Target: "second"},
+			{ID: "second-end", Source: "second", Target: "end"},
+		},
+	}
+	request := httptest.NewRequest(http.MethodGet, "/multi", nil)
+	response := httptest.NewRecorder()
+	New(dataStore).Execute(response, request, flow, nil)
+
+	if response.Code != http.StatusCreated || response.Body.String() != "second" {
+		t.Fatalf("expected last template response, got status=%d body=%q", response.Code, response.Body.String())
+	}
+	if got := response.Header().Get("X-Template"); got != "second" {
+		t.Fatalf("expected last template header, got %q", got)
+	}
+}
+
 func TestExecuteSavesTraceWhenSpecTracingEnabled(t *testing.T) {
 	dataStore, err := store.New(t.TempDir())
 	if err != nil {
@@ -244,6 +381,44 @@ func TestExecuteSavesTraceWhenSpecTracingEnabled(t *testing.T) {
 	}
 	if !selectedConditional {
 		t.Fatalf("expected selected route-vip edge, got %#v", trace.Edges)
+	}
+}
+
+const fallbackExampleSpec = `openapi: 3.0.3
+info:
+  title: Fallback
+  version: 1.0.0
+paths:
+  /fallback:
+    get:
+      responses:
+        '500':
+          description: Ignored error
+          content:
+            text/plain:
+              example: error
+        '200':
+          description: Success
+          content:
+            text/plain:
+              example: hello {{.request.query.name}}
+  /empty:
+    get:
+      responses:
+        '200':
+          description: Success without example
+`
+
+func flowWithoutTemplate(specID, operationID string) domain.Flow {
+	return domain.Flow{
+		Version:     domain.CurrentFlowVersion,
+		SpecID:      specID,
+		OperationID: operationID,
+		Nodes: []domain.Node{
+			{ID: "start", Type: domain.NodeTypeStart, Data: domain.NodeData{Name: "start"}},
+			{ID: "end", Type: domain.NodeTypeEnd, Data: domain.NodeData{Name: "end"}},
+		},
+		Edges: []domain.Edge{{ID: "start-end", Source: "start", Target: "end"}},
 	}
 }
 

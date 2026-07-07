@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { NavLink, Outlet } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
-import { Activity, Code2, FileJson, FileCode, Menu, Moon, Monitor, Sun, X } from 'lucide-react'
+import { Activity, BarChart3, Code2, FileJson, FileCode, Menu, Moon, Monitor, Sun, X } from 'lucide-react'
 import clsx from 'clsx'
 import { LogoFull } from './Logo'
 import { metaApi } from '../services/api'
@@ -10,6 +10,7 @@ type ThemeMode = 'light' | 'dark' | 'system'
 const themeKey = 'api-flow-theme'
 
 const navItems = [
+  { to: '/overview', label: 'Overview', icon: BarChart3 },
   { to: '/specifications', label: 'Specifications', icon: FileJson },
   { to: '/templates', label: 'Templates', icon: FileCode },
   { to: '/scripts', label: 'Scripts', icon: Code2 },

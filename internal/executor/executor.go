@@ -6,10 +6,14 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"regexp"
 	"sort"
+	"strconv"
 	"strings"
 	"text/template"
 	"time"
+
+	"github.com/getkin/kin-openapi/openapi3"
 
 	"github.com/prasenjit-net/api-flow/internal/domain"
 	"github.com/prasenjit-net/api-flow/internal/store"
@@ -18,6 +22,8 @@ import (
 type Executor struct {
 	store store.Store
 }
+
+var shorthandTemplatePathPattern = regexp.MustCompile(`\{\{\s*((?:request|nodes)(?:\.[A-Za-z0-9_-]+)+)\s*\}\}`)
 
 func New(s store.Store) *Executor {
 	return &Executor{store: s}
@@ -141,10 +147,23 @@ func (e *Executor) Execute(w http.ResponseWriter, r *http.Request, flow domain.F
 			contextNodes(ctx)[current.Data.Name] = nodeOutput
 		case domain.NodeTypeEnd:
 			if response == nil {
-				nodeErr = fmt.Errorf("workflow ended without producing a response")
-				recorder.recordNode(current, nodeStartedAt, nodeInput, nil, nodeErr)
-				fail(http.StatusInternalServerError, nodeErr.Error())
-				return
+				fallback, output, found, err := e.exampleResponse(flow, ctx)
+				if err != nil {
+					nodeErr = err
+					recorder.recordNode(current, nodeStartedAt, nodeInput, nil, nodeErr)
+					fail(http.StatusInternalServerError, err.Error())
+					return
+				}
+				if !found {
+					recorder.recordNode(current, nodeStartedAt, nodeInput, map[string]any{
+						"statusCode": http.StatusNotFound,
+						"body":       "no template response or OpenAPI response example found",
+					}, nil)
+					http.Error(w, "no template response or OpenAPI response example found", http.StatusNotFound)
+					return
+				}
+				response = fallback
+				nodeOutput = output
 			}
 			recorder.recordNode(current, nodeStartedAt, nodeInput, nodeOutput, nil)
 			writeResponse(w, *response)
@@ -210,6 +229,172 @@ func (e *Executor) executeTemplate(specID, operationID string, node domain.Node,
 		"body":       body,
 	}
 	return candidate, output, nil
+}
+
+func (e *Executor) exampleResponse(flow domain.Flow, context map[string]any) (*responseCandidate, map[string]any, bool, error) {
+	data, err := e.store.GetSpecFile(flow.SpecID)
+	if err == store.ErrNotFound {
+		return nil, nil, false, nil
+	}
+	if err != nil {
+		return nil, nil, false, err
+	}
+	doc, err := openapi3.NewLoader().LoadFromData(data)
+	if err != nil {
+		return nil, nil, false, fmt.Errorf("load OpenAPI spec for fallback response: %w", err)
+	}
+	operation := findOperation(doc, flow.OperationID)
+	if operation == nil {
+		return nil, nil, false, nil
+	}
+	example, found := firstSuccessResponseExample(flow.OperationID, operation)
+	if !found {
+		return nil, nil, false, nil
+	}
+
+	headers := make(map[string]string, len(example.Headers))
+	for key, valTmpl := range example.Headers {
+		rendered, err := renderString(valTmpl, context)
+		if err != nil {
+			return nil, nil, false, fmt.Errorf("example header %q render error: %w", key, err)
+		}
+		headers[key] = rendered
+	}
+	body, err := renderString(example.Body, context)
+	if err != nil {
+		return nil, nil, false, fmt.Errorf("example body render error: %w", err)
+	}
+	candidate := &responseCandidate{StatusCode: example.StatusCode, Headers: headers, Body: body}
+	output := map[string]any{
+		"statusCode": example.StatusCode,
+		"headers":    headers,
+		"body":       body,
+		"source":     "openapi-example",
+		"exampleId":  example.ID,
+	}
+	return candidate, output, true, nil
+}
+
+func findOperation(doc *openapi3.T, operationID string) *openapi3.Operation {
+	for path, pathItem := range doc.Paths.Map() {
+		for method, operation := range pathItem.Operations() {
+			if domain.MakeOpID(method, path) == operationID {
+				return operation
+			}
+		}
+	}
+	return nil
+}
+
+func firstSuccessResponseExample(operationID string, operation *openapi3.Operation) (domain.TemplateExample, bool) {
+	if operation == nil || operation.Responses == nil {
+		return domain.TemplateExample{}, false
+	}
+	statuses := operation.Responses.Keys()
+	sort.Strings(statuses)
+	for _, statusText := range statuses {
+		statusCode, err := strconv.Atoi(statusText)
+		if err != nil || statusCode < 200 || statusCode > 299 {
+			continue
+		}
+		responseRef := operation.Responses.Value(statusText)
+		if responseRef == nil || responseRef.Value == nil {
+			continue
+		}
+		response := responseRef.Value
+		headers := exampleHeaders(response.Headers)
+		mediaTypes := make([]string, 0, len(response.Content))
+		for mediaType := range response.Content {
+			mediaTypes = append(mediaTypes, mediaType)
+		}
+		sort.Strings(mediaTypes)
+		for _, mediaType := range mediaTypes {
+			media := response.Content[mediaType]
+			if media == nil {
+				continue
+			}
+			exampleHeaders := cloneHeaders(headers)
+			exampleHeaders["Content-Type"] = mediaType
+			build := func(key, name string, value any) (domain.TemplateExample, bool) {
+				if value == nil {
+					return domain.TemplateExample{}, false
+				}
+				return domain.TemplateExample{
+					ID:          fmt.Sprintf("%s:%s:%s:%s", operationID, statusText, mediaType, key),
+					Name:        name,
+					OperationID: operationID,
+					StatusCode:  statusCode,
+					MediaType:   mediaType,
+					Body:        formatExampleBody(value),
+					Headers:     cloneHeaders(exampleHeaders),
+				}, true
+			}
+
+			names := make([]string, 0, len(media.Examples))
+			for name := range media.Examples {
+				names = append(names, name)
+			}
+			sort.Strings(names)
+			for _, name := range names {
+				ref := media.Examples[name]
+				if ref == nil || ref.Value == nil || ref.Value.Value == nil {
+					continue
+				}
+				label := strings.TrimSpace(ref.Value.Summary)
+				if label == "" {
+					label = name
+				}
+				if example, ok := build("named-"+name, fmt.Sprintf("%d · %s", statusCode, label), ref.Value.Value); ok {
+					return example, true
+				}
+			}
+			if example, ok := build("media", fmt.Sprintf("%d · %s example", statusCode, mediaType), media.Example); ok {
+				return example, true
+			}
+			if media.Schema != nil && media.Schema.Value != nil {
+				schema := media.Schema.Value
+				if example, ok := build("schema", fmt.Sprintf("%d · schema example", statusCode), schema.Example); ok {
+					return example, true
+				}
+				for i, value := range schema.Examples {
+					if example, ok := build(fmt.Sprintf("schema-%d", i+1), fmt.Sprintf("%d · schema example %d", statusCode, i+1), value); ok {
+						return example, true
+					}
+				}
+			}
+		}
+	}
+	return domain.TemplateExample{}, false
+}
+
+func exampleHeaders(headers openapi3.Headers) map[string]string {
+	result := map[string]string{}
+	for name, ref := range headers {
+		if ref == nil || ref.Value == nil || ref.Value.Example == nil {
+			continue
+		}
+		result[name] = fmt.Sprint(ref.Value.Example)
+	}
+	return result
+}
+
+func cloneHeaders(headers map[string]string) map[string]string {
+	result := make(map[string]string, len(headers)+1)
+	for key, value := range headers {
+		result[key] = value
+	}
+	return result
+}
+
+func formatExampleBody(value any) string {
+	if text, ok := value.(string); ok {
+		return text
+	}
+	formatted, err := json.MarshalIndent(value, "", "  ")
+	if err != nil {
+		return fmt.Sprint(value)
+	}
+	return string(formatted)
 }
 
 func writeResponse(w http.ResponseWriter, response responseCandidate) {
@@ -354,8 +539,15 @@ func renderString(tmplStr string, ctx map[string]any) (string, error) {
 	}
 	funcs := template.FuncMap{
 		"now": func() string { return time.Now().UTC().Format(time.RFC3339) },
+		"path": func(source string) any {
+			value, exists := ResolveContextPath(ctx, source)
+			if !exists {
+				return nil
+			}
+			return value
+		},
 	}
-	t, err := template.New("").Funcs(funcs).Parse(tmplStr)
+	t, err := template.New("").Funcs(funcs).Parse(normalizeTemplateShorthand(tmplStr))
 	if err != nil {
 		return "", err
 	}
@@ -364,4 +556,8 @@ func renderString(tmplStr string, ctx map[string]any) (string, error) {
 		return "", err
 	}
 	return buf.String(), nil
+}
+
+func normalizeTemplateShorthand(tmplStr string) string {
+	return shorthandTemplatePathPattern.ReplaceAllString(tmplStr, `{{path "$1"}}`)
 }

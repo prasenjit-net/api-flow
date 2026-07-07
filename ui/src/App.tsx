@@ -1,5 +1,6 @@
 import { Navigate, Route, Routes } from 'react-router-dom'
 import Layout from './components/Layout'
+import OverviewPage from './pages/OverviewPage'
 import SpecificationsPage from './pages/SpecificationsPage'
 import SpecificationDetailPage from './pages/SpecificationDetailPage'
 import FlowEditorPage from './pages/FlowEditorPage'
@@ -13,7 +14,8 @@ function App() {
   return (
     <Routes>
       <Route path="/" element={<Layout />}>
-        <Route index element={<Navigate to="/specifications" replace />} />
+        <Route index element={<Navigate to="/overview" replace />} />
+        <Route path="overview" element={<OverviewPage />} />
         <Route path="specifications" element={<SpecificationsPage />} />
         <Route path="specifications/:id" element={<SpecificationDetailPage />} />
         <Route path="specifications/:id/operations/:opId" element={<FlowEditorPage />} />

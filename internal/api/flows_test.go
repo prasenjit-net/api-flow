@@ -32,7 +32,7 @@ func TestSaveFlowRejectsInvalidWorkflowWithoutPersisting(t *testing.T) {
 			{"id":"start","type":"start","position":{"x":0,"y":0},"data":{"name":"start"}},
 			{"id":"end","type":"end","position":{"x":100,"y":0},"data":{"name":"end"}}
 		],
-		"edges": [{"id":"start-end","source":"start","target":"end"}]
+		"edges": []
 	}`)
 	request := httptest.NewRequest(http.MethodPut, "/specs/example/flows/get-users", bytes.NewReader(body))
 	response := httptest.NewRecorder()
@@ -42,7 +42,7 @@ func TestSaveFlowRejectsInvalidWorkflowWithoutPersisting(t *testing.T) {
 	if response.Code != http.StatusUnprocessableEntity {
 		t.Fatalf("expected 422, got %d: %s", response.Code, response.Body.String())
 	}
-	if !strings.Contains(response.Body.String(), `"route_template_missing"`) {
+	if !strings.Contains(response.Body.String(), `"node_has_no_outgoing"`) {
 		t.Fatalf("expected structured validation details, got %s", response.Body.String())
 	}
 	if _, err := dataStore.GetFlow("example", "get-users"); err != store.ErrNotFound {

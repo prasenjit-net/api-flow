@@ -258,14 +258,6 @@ func ValidateFlow(flow Flow) []FlowValidationError {
 		}
 	}
 
-	missingTemplate, multipleTemplates := routeTemplateCounts(startID, endID, nodesByID, outgoing)
-	if missingTemplate {
-		add(FlowValidationError{Code: "route_template_missing", Message: "every route from start to end must contain a template node"})
-	}
-	if multipleTemplates {
-		add(FlowValidationError{Code: "route_multiple_templates", Message: "a route from start to end cannot contain more than one template node"})
-	}
-
 	return errors
 }
 
@@ -490,39 +482,4 @@ func conditionSources(condition Condition) []string {
 		result = append(result, conditionSources(child)...)
 	}
 	return result
-}
-
-func routeTemplateCounts(startID, endID string, nodes map[string]Node, outgoing map[string][]Edge) (missing, multiple bool) {
-	type state struct {
-		nodeID        string
-		templateCount int
-	}
-	visited := map[state]bool{}
-	var visit func(string, int)
-	visit = func(nodeID string, count int) {
-		if nodes[nodeID].Type == NodeTypeTemplate {
-			count++
-		}
-		if count > 1 {
-			count = 2
-		}
-		current := state{nodeID: nodeID, templateCount: count}
-		if visited[current] {
-			return
-		}
-		visited[current] = true
-		if nodeID == endID {
-			if count == 0 {
-				missing = true
-			} else if count > 1 {
-				multiple = true
-			}
-			return
-		}
-		for _, edge := range outgoing[nodeID] {
-			visit(edge.Target, count)
-		}
-	}
-	visit(startID, 0)
-	return missing, multiple
 }

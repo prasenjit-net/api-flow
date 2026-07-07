@@ -24,14 +24,39 @@ func TestValidateFlowRequiresOneFallbackPerBranch(t *testing.T) {
 	}
 }
 
-func TestValidateFlowRequiresExactlyOneTemplatePerRoute(t *testing.T) {
+func TestValidateFlowAllowsRoutesWithoutTemplates(t *testing.T) {
 	flow := validBranchingFlow()
 	flow.Nodes[3].Type = NodeTypeContextMapper
 	flow.Nodes[3].Data.TemplateID = ""
 
-	issues := ValidateFlow(flow)
-	if !hasValidationCode(issues, "route_template_missing") {
-		t.Fatalf("expected missing template route error, got %#v", issues)
+	if issues := ValidateFlow(flow); len(issues) != 0 {
+		t.Fatalf("expected route without template to be valid, got %#v", issues)
+	}
+}
+
+func TestValidateFlowAllowsMultipleTemplatesPerRoute(t *testing.T) {
+	flow := validBranchingFlow()
+	flow.Nodes = append(flow.Nodes, Node{
+		ID:   "final-template",
+		Type: NodeTypeTemplate,
+		Data: NodeData{Name: "final-response", TemplateID: "final-template"},
+	})
+	flow.Edges = []Edge{
+		{ID: "start-route", Source: "start", Target: "route"},
+		{ID: "route-vip", Source: "route", Target: "vip", Condition: &Condition{
+			Type:     ConditionTypeRule,
+			Source:   "nodes.route-request.tier",
+			Operator: string(ConditionOperatorEquals),
+			Value:    "vip",
+		}},
+		{ID: "route-default", Source: "route", Target: "default"},
+		{ID: "vip-final", Source: "vip", Target: "final-template"},
+		{ID: "default-final", Source: "default", Target: "final-template"},
+		{ID: "final-end", Source: "final-template", Target: "end"},
+	}
+
+	if issues := ValidateFlow(flow); len(issues) != 0 {
+		t.Fatalf("expected multiple templates on a route to be valid, got %#v", issues)
 	}
 }
 
