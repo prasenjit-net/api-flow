@@ -19,8 +19,8 @@ import {
 import '@xyflow/react/dist/style.css'
 import { AlertCircle, ChevronLeft, Save, Plus, CheckCircle2 } from 'lucide-react'
 
-import { ApiError, flowsApi, scriptsApi, templatesApi, specsApi } from '../services/api'
-import type { Condition, Flow, FlowEdge, FlowValidationError, Mapping } from '../types'
+import { ApiError, flowsApi, scriptsApi, templatesApi, specsApi, collectionsApi } from '../services/api'
+import type { Condition, DataMapperOperation, Flow, FlowEdge, FlowValidationError, Mapping } from '../types'
 import StartNode from '../components/flow/StartNode'
 import EndNode from '../components/flow/EndNode'
 import ContextMapperNode from '../components/flow/ContextMapperNode'
@@ -29,6 +29,8 @@ import ContextMapperModal from '../components/flow/ContextMapperModal'
 import TemplateNodeModal from '../components/flow/TemplateNodeModal'
 import StarlarkNode from '../components/flow/StarlarkNode'
 import StarlarkNodeModal from '../components/flow/StarlarkNodeModal'
+import DataMapperNode from '../components/flow/DataMapperNode'
+import DataMapperNodeModal from '../components/flow/DataMapperNodeModal'
 import EdgeConditionModal from '../components/flow/EdgeConditionModal'
 import { summarizeCondition } from '../components/flow/edgeConditions'
 
@@ -38,12 +40,22 @@ const nodeTypes = {
   contextMapper: ContextMapperNode,
   starlark: StarlarkNode,
   template: TemplateNode,
+  dataMapper: DataMapperNode,
 }
 
 type EditingNode =
   | { type: 'contextMapper'; id: string; name: string; mappings: Mapping[] }
   | { type: 'starlark'; id: string; name: string; scriptId: string; mappings: Mapping[] }
   | { type: 'template'; id: string; name: string; templateId: string; mappings: Mapping[] }
+  | {
+      type: 'dataMapper'
+      id: string
+      name: string
+      collectionId: string
+      operation: DataMapperOperation
+      queryMappings: Mapping[]
+      bodyMappings: Mapping[]
+    }
 
 type FlowEdgeData = Record<string, unknown> & {
   condition?: Condition
@@ -101,6 +113,11 @@ function FlowEditor() {
     queryFn: scriptsApi.list,
   })
 
+  const { data: collections = [] } = useQuery({
+    queryKey: ['collections'],
+    queryFn: collectionsApi.list,
+  })
+
   const { data: spec } = useQuery({
     queryKey: ['specs', specId],
     queryFn: () => specsApi.get(specId!),
@@ -123,6 +140,7 @@ function FlowEditor() {
     const enriched = flowData.nodes.map(n => {
       if (n.type === 'template') return { ...n, data: { ...n.data, _templates: templates } }
       if (n.type === 'starlark') return { ...n, data: { ...n.data, _scripts: scripts } }
+      if (n.type === 'dataMapper') return { ...n, data: { ...n.data, _collections: collections } }
       return n
     })
     setNodes(enriched as Node[])
@@ -132,7 +150,7 @@ function FlowEditor() {
       restoredViewportFor.current = flowKey
       requestAnimationFrame(() => setViewport(flowData.viewport))
     }
-  }, [flowData, scripts, templates, setNodes, setEdges, setViewport])
+  }, [flowData, scripts, templates, collections, setNodes, setEdges, setViewport])
 
   useEffect(() => {
     setNodes(ns =>
@@ -145,6 +163,12 @@ function FlowEditor() {
       current.map(node => node.type === 'starlark' ? { ...node, data: { ...node.data, _scripts: scripts } } : node),
     )
   }, [scripts, setNodes])
+
+  useEffect(() => {
+    setNodes(current =>
+      current.map(node => node.type === 'dataMapper' ? { ...node, data: { ...node.data, _collections: collections } } : node),
+    )
+  }, [collections, setNodes])
 
   const onConnect = useCallback(
     (connection: Connection) => setEdges(eds => {
@@ -180,6 +204,23 @@ function FlowEditor() {
         name: data.name ?? '',
         templateId: data.templateId ?? '',
         mappings: data.mappings ?? [],
+      })
+    } else if (node.type === 'dataMapper') {
+      const data = node.data as {
+        name?: string
+        collectionId?: string
+        operation?: DataMapperOperation
+        queryMappings?: Mapping[]
+        bodyMappings?: Mapping[]
+      }
+      setEditingNode({
+        type: 'dataMapper',
+        id: node.id,
+        name: data.name ?? '',
+        collectionId: data.collectionId ?? '',
+        operation: data.operation ?? 'insert',
+        queryMappings: data.queryMappings ?? [],
+        bodyMappings: data.bodyMappings ?? [],
       })
     }
   }, [])
@@ -223,6 +264,7 @@ function FlowEditor() {
         const rest = { ...n.data } as Record<string, unknown>
         delete rest._templates
         delete rest._scripts
+        delete rest._collections
         return {
           id: n.id,
           type: n.type as Flow['nodes'][number]['type'],
@@ -261,6 +303,17 @@ function FlowEditor() {
       type: 'starlark',
       position: { x: 380, y: 170 + current.length * 15 },
       data: { name, scriptId: '', mappings: [], _scripts: scripts },
+    }])
+  }
+
+  function addDataMapperNode() {
+    const id = `data-mapper-${Date.now()}`
+    const name = nextNodeName('data-mapper', nodes)
+    setNodes(current => [...current, {
+      id,
+      type: 'dataMapper',
+      position: { x: 420, y: 190 + current.length * 15 },
+      data: { name, collectionId: '', operation: 'insert', queryMappings: [], bodyMappings: [], _collections: collections },
     }])
   }
 
@@ -334,6 +387,14 @@ function FlowEditor() {
           >
             <Plus className="h-4 w-4" />
             Starlark
+          </button>
+          <button
+            type="button"
+            onClick={addDataMapperNode}
+            className="inline-flex items-center gap-2 rounded-lg border border-emerald-200 px-3 py-2 text-xs font-semibold text-emerald-700 transition-colors hover:bg-emerald-50 dark:border-emerald-900/40 dark:text-emerald-300 dark:hover:bg-emerald-950/20"
+          >
+            <Plus className="h-4 w-4" />
+            Data Mapper
           </button>
           <button
             type="button"
@@ -421,6 +482,21 @@ function FlowEditor() {
           scripts={scripts}
           onSave={(name, scriptId, mappings) => {
             updateNodeData(editingNode.id, { name, scriptId, mappings, _scripts: scripts })
+            setEditingNode(null)
+          }}
+          onClose={() => setEditingNode(null)}
+        />
+      )}
+      {editingNode?.type === 'dataMapper' && (
+        <DataMapperNodeModal
+          name={editingNode.name}
+          collectionId={editingNode.collectionId}
+          operation={editingNode.operation}
+          queryMappings={editingNode.queryMappings}
+          bodyMappings={editingNode.bodyMappings}
+          collections={collections}
+          onSave={(name, collectionId, operation, queryMappings, bodyMappings) => {
+            updateNodeData(editingNode.id, { name, collectionId, operation, queryMappings, bodyMappings, _collections: collections })
             setEditingNode(null)
           }}
           onClose={() => setEditingNode(null)}

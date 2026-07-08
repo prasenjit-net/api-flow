@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { Plus, Trash2, X } from 'lucide-react'
 import type { Condition, ConditionOperator, LogicalOperator } from '../../types'
+import { comparisonOperators } from './edgeConditions'
 
 interface Props {
   condition?: Condition
@@ -8,21 +9,6 @@ interface Props {
   onSave: (condition: Condition | undefined, priority: number) => void
   onClose: () => void
 }
-
-const comparisonOperators: Array<{ value: ConditionOperator; label: string }> = [
-  { value: 'equals', label: 'equals' },
-  { value: 'notEquals', label: 'does not equal' },
-  { value: 'greaterThan', label: 'is greater than' },
-  { value: 'greaterThanOrEqual', label: 'is greater than or equal' },
-  { value: 'lessThan', label: 'is less than' },
-  { value: 'lessThanOrEqual', label: 'is less than or equal' },
-  { value: 'contains', label: 'contains' },
-  { value: 'startsWith', label: 'starts with' },
-  { value: 'endsWith', label: 'ends with' },
-  { value: 'in', label: 'is in' },
-  { value: 'exists', label: 'exists' },
-  { value: 'notExists', label: 'does not exist' },
-]
 
 function newRule(): Condition {
   return {

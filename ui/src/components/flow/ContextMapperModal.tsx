@@ -16,7 +16,7 @@ export default function ContextMapperModal({ name: initialName, mappings: initia
   const [rows, setRows] = useState<Mapping[]>(initial.length > 0 ? initial : [emptyMapping()])
 
   function handleSave() {
-    onSave(name.trim(), rows.filter(isCompleteMapping))
+    onSave(name.trim(), rows.filter(m => isCompleteMapping(m)))
     onClose()
   }
 

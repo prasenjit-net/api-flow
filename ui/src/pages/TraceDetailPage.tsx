@@ -74,6 +74,15 @@ function nodeTone(type: NodeType) {
         badge: 'bg-violet-100 text-violet-700 dark:bg-violet-900/50 dark:text-violet-200',
         rail: 'bg-violet-300 dark:bg-violet-700',
       }
+    case 'dataMapper':
+      return {
+        label: 'Data Mapper',
+        Icon: Database,
+        card: 'border-teal-300 bg-teal-50 text-teal-900 dark:border-teal-700 dark:bg-teal-950/40 dark:text-teal-100',
+        icon: 'bg-teal-100 text-teal-700 dark:bg-teal-900/40 dark:text-teal-200',
+        badge: 'bg-teal-100 text-teal-700 dark:bg-teal-900/50 dark:text-teal-200',
+        rail: 'bg-teal-300 dark:bg-teal-700',
+      }
   }
 }
 

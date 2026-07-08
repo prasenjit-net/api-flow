@@ -45,6 +45,19 @@ func NewRouter(cfg config.Config, logger *slog.Logger, build version.Info, s sto
 		r.Delete("/{scriptId}", h.DeleteScript)
 	})
 
+	r.Route("/collections", func(r chi.Router) {
+		r.Get("/", h.ListCollections)
+		r.Post("/", h.CreateCollection)
+		r.Get("/{collectionId}", h.GetCollection)
+		r.Put("/{collectionId}", h.UpdateCollection)
+		r.Delete("/{collectionId}", h.DeleteCollection)
+		r.Get("/{collectionId}/documents", h.ListDocuments)
+		r.Post("/{collectionId}/documents", h.CreateDocument)
+		r.Get("/{collectionId}/documents/{documentId}", h.GetDocument)
+		r.Put("/{collectionId}/documents/{documentId}", h.UpdateDocument)
+		r.Delete("/{collectionId}/documents/{documentId}", h.DeleteDocument)
+	})
+
 	r.Route("/traces", func(r chi.Router) {
 		r.Get("/", h.ListTraces)
 		r.Delete("/", h.DeleteAllTraces)

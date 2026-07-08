@@ -7,6 +7,8 @@ import FlowEditorPage from './pages/FlowEditorPage'
 import TemplatesPage, { TemplateEditorPage } from './pages/TemplatesPage'
 import TemplatesIndexPage from './pages/TemplatesIndexPage'
 import ScriptsPage, { ScriptEditorPage } from './pages/ScriptsPage'
+import CollectionsPage, { CollectionEditorPage } from './pages/CollectionsPage'
+import CollectionDocumentsPage, { DocumentEditorPage } from './pages/CollectionDocumentsPage'
 import TracesPage from './pages/TracesPage'
 import TraceDetailPage from './pages/TraceDetailPage'
 
@@ -26,6 +28,12 @@ function App() {
         <Route path="scripts" element={<ScriptsPage />} />
         <Route path="scripts/new" element={<ScriptEditorPage />} />
         <Route path="scripts/:scriptId/edit" element={<ScriptEditorPage />} />
+        <Route path="collections" element={<CollectionsPage />} />
+        <Route path="collections/new" element={<CollectionEditorPage />} />
+        <Route path="collections/:collectionId/edit" element={<CollectionEditorPage />} />
+        <Route path="collections/:collectionId/documents" element={<CollectionDocumentsPage />} />
+        <Route path="collections/:collectionId/documents/new" element={<DocumentEditorPage />} />
+        <Route path="collections/:collectionId/documents/:documentId/edit" element={<DocumentEditorPage />} />
         <Route path="traces" element={<TracesPage />} />
         <Route path="traces/:traceId" element={<TraceDetailPage />} />
       </Route>

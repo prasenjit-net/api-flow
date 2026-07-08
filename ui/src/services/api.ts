@@ -1,4 +1,4 @@
-import type { Flow, FlowValidationError, MetaResponse, Script, SpecDetail, SpecMeta, Template, TemplateExample, Trace, TraceSummary } from '../types'
+import type { Collection, CollectionDocument, Flow, FlowValidationError, MetaResponse, Script, SpecDetail, SpecMeta, Template, TemplateExample, Trace, TraceSummary } from '../types'
 
 const BASE = import.meta.env.VITE_API_BASE || '/_api'
 
@@ -104,6 +104,50 @@ export const scriptsApi = {
     fetch(`${BASE}/scripts/${id}`, { method: 'DELETE' }).then(async response => {
       if (!response.ok) await handle<never>(response)
   }),
+}
+
+export const collectionsApi = {
+  list: () => fetch(`${BASE}/collections`).then(r => handle<Collection[]>(r)),
+  get: (id: string) => fetch(`${BASE}/collections/${id}`).then(r => handle<Collection>(r)),
+  create: (c: Pick<Collection, 'name' | 'description'>) =>
+    fetch(`${BASE}/collections`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(c),
+    }).then(r => handle<Collection>(r)),
+  update: (id: string, c: Pick<Collection, 'name' | 'description'>) =>
+    fetch(`${BASE}/collections/${id}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(c),
+    }).then(r => handle<Collection>(r)),
+  delete: (id: string) =>
+    fetch(`${BASE}/collections/${id}`, { method: 'DELETE' }).then(async response => {
+      if (!response.ok) await handle<never>(response)
+    }),
+}
+
+export const documentsApi = {
+  list: (collectionId: string) =>
+    fetch(`${BASE}/collections/${collectionId}/documents`).then(r => handle<CollectionDocument[]>(r)),
+  get: (collectionId: string, id: string) =>
+    fetch(`${BASE}/collections/${collectionId}/documents/${id}`).then(r => handle<CollectionDocument>(r)),
+  create: (collectionId: string, data: Record<string, unknown>) =>
+    fetch(`${BASE}/collections/${collectionId}/documents`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(data),
+    }).then(r => handle<CollectionDocument>(r)),
+  update: (collectionId: string, id: string, data: Record<string, unknown>) =>
+    fetch(`${BASE}/collections/${collectionId}/documents/${id}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(data),
+    }).then(r => handle<CollectionDocument>(r)),
+  delete: (collectionId: string, id: string) =>
+    fetch(`${BASE}/collections/${collectionId}/documents/${id}`, { method: 'DELETE' }).then(async response => {
+      if (!response.ok) await handle<never>(response)
+    }),
 }
 
 export const tracesApi = {

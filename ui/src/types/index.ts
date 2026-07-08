@@ -57,13 +57,36 @@ export interface Mapping {
   key: string
   value?: unknown
   valueType?: 'string' | 'number' | 'boolean' | 'null'
+  operator?: ConditionOperator
 }
+
+export interface Collection {
+  id: string
+  name: string
+  description: string
+  createdAt: string
+  updatedAt: string
+}
+
+export interface CollectionDocument {
+  id: string
+  collectionId: string
+  data: Record<string, unknown>
+  createdAt: string
+  updatedAt: string
+}
+
+export type DataMapperOperation = 'insert' | 'findOne' | 'findMany' | 'update' | 'upsert' | 'delete'
 
 export interface NodeData {
   name: string
   mappings?: Mapping[]
   templateId?: string
   scriptId?: string
+  collectionId?: string
+  operation?: DataMapperOperation
+  queryMappings?: Mapping[]
+  bodyMappings?: Mapping[]
 }
 
 export type LogicalOperator = 'and' | 'or' | 'not'
@@ -96,7 +119,7 @@ export type Condition =
       valueType?: 'string' | 'number' | 'boolean' | 'null'
     }
 
-export type NodeType = 'start' | 'contextMapper' | 'starlark' | 'template' | 'end'
+export type NodeType = 'start' | 'contextMapper' | 'starlark' | 'template' | 'dataMapper' | 'end'
 
 export interface FlowNode {
   id: string

@@ -2,6 +2,7 @@ import { Plus, Trash2 } from 'lucide-react'
 import clsx from 'clsx'
 import type { Mapping } from '../../types'
 import { emptyMapping, mappingKeyPattern } from './mappingUtils'
+import { comparisonOperators } from './edgeConditions'
 
 function parseConstantValue(value: string, valueType: Mapping['valueType']) {
   switch (valueType) {
@@ -32,6 +33,9 @@ export default function MappingRows({
   sourcePlaceholder = 'request.body.user.name',
   keyPlaceholder = 'user_name',
   addLabel = 'Add mapping',
+  showOperator = false,
+  keyPattern = mappingKeyPattern,
+  keyHelperText = "Use lowercase letters, numbers, - or _. Start with a letter or number.",
 }: {
   mappings: Mapping[]
   onChange: (mappings: Mapping[]) => void
@@ -40,6 +44,9 @@ export default function MappingRows({
   sourcePlaceholder?: string
   keyPlaceholder?: string
   addLabel?: string
+  showOperator?: boolean
+  keyPattern?: RegExp
+  keyHelperText?: string
 }) {
   const rows = mappings.length > 0 ? mappings : [emptyMapping()]
 
@@ -66,7 +73,7 @@ export default function MappingRows({
         {rows.map((mapping, index) => {
           const type = mapping.type ?? 'context'
           const valueType = mapping.valueType ?? 'string'
-          const keyIsInvalid = mapping.key.trim().length > 0 && !mappingKeyPattern.test(mapping.key.trim())
+          const keyIsInvalid = mapping.key.trim().length > 0 && !keyPattern.test(mapping.key.trim())
           const isConstant = type === 'constant'
           return (
             <div
@@ -185,10 +192,25 @@ export default function MappingRows({
                   />
                   {keyIsInvalid && (
                     <span className="mt-1 block text-[10px] text-red-500">
-                      Use lowercase letters, numbers, - or _. Start with a letter or number.
+                      {keyHelperText}
                     </span>
                   )}
                 </label>
+
+                {showOperator && (
+                  <label className="min-w-0 sm:col-span-3">
+                    <span className="mb-1 block text-[11px] font-medium text-slate-500">Operator</span>
+                    <select
+                      value={mapping.operator ?? 'equals'}
+                      onChange={event => update(index, { operator: event.target.value as Mapping['operator'] })}
+                      className="w-full min-w-0 rounded border border-slate-200 bg-white px-2.5 py-1.5 text-xs text-slate-700 focus:border-primary-400 focus:outline-none focus:ring-1 focus:ring-primary-400 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200"
+                    >
+                      {comparisonOperators.map(operator => (
+                        <option key={operator.value} value={operator.value}>{operator.label}</option>
+                      ))}
+                    </select>
+                  </label>
+                )}
               </div>
             </div>
           )

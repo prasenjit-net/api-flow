@@ -15,7 +15,7 @@ type FileStore struct {
 }
 
 func New(dir string) (*FileStore, error) {
-	for _, sub := range []string{filepath.Join(dir, "specs"), filepath.Join(dir, "scripts"), filepath.Join(dir, "traces")} {
+	for _, sub := range []string{filepath.Join(dir, "specs"), filepath.Join(dir, "scripts"), filepath.Join(dir, "traces"), filepath.Join(dir, "collections")} {
 		if err := os.MkdirAll(sub, 0o755); err != nil {
 			return nil, fmt.Errorf("create data dir %s: %w", sub, err)
 		}
@@ -205,6 +205,93 @@ func (s *FileStore) ListScripts() ([]domain.Script, error) {
 
 func (s *FileStore) DeleteScript(id string) error {
 	err := os.Remove(filepath.Join(s.dir, "scripts", id+".json"))
+	if os.IsNotExist(err) {
+		return nil
+	}
+	return err
+}
+
+func (s *FileStore) SaveCollection(c domain.Collection) error {
+	dir := filepath.Join(s.dir, "collections", c.ID)
+	if err := os.MkdirAll(filepath.Join(dir, "documents"), 0o755); err != nil {
+		return err
+	}
+	return writeJSON(filepath.Join(dir, "meta.json"), c)
+}
+
+func (s *FileStore) GetCollection(id string) (domain.Collection, error) {
+	var c domain.Collection
+	return c, readJSON(filepath.Join(s.dir, "collections", id, "meta.json"), &c)
+}
+
+func (s *FileStore) ListCollections() ([]domain.Collection, error) {
+	entries, err := os.ReadDir(filepath.Join(s.dir, "collections"))
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil, nil
+		}
+		return nil, err
+	}
+	var result []domain.Collection
+	for _, e := range entries {
+		if !e.IsDir() {
+			continue
+		}
+		var c domain.Collection
+		if err := readJSON(filepath.Join(s.dir, "collections", e.Name(), "meta.json"), &c); err != nil {
+			continue
+		}
+		result = append(result, c)
+	}
+	return result, nil
+}
+
+func (s *FileStore) DeleteCollection(id string) error {
+	err := os.RemoveAll(filepath.Join(s.dir, "collections", id))
+	if os.IsNotExist(err) {
+		return nil
+	}
+	return err
+}
+
+func (s *FileStore) SaveDocument(collectionID string, doc domain.Document) error {
+	dir := filepath.Join(s.dir, "collections", collectionID, "documents")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return err
+	}
+	return writeJSON(filepath.Join(dir, doc.ID+".json"), doc)
+}
+
+func (s *FileStore) GetDocument(collectionID, id string) (domain.Document, error) {
+	var doc domain.Document
+	return doc, readJSON(filepath.Join(s.dir, "collections", collectionID, "documents", id+".json"), &doc)
+}
+
+func (s *FileStore) ListDocuments(collectionID string) ([]domain.Document, error) {
+	dir := filepath.Join(s.dir, "collections", collectionID, "documents")
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil, nil
+		}
+		return nil, err
+	}
+	var result []domain.Document
+	for _, entry := range entries {
+		if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".json") {
+			continue
+		}
+		var doc domain.Document
+		if err := readJSON(filepath.Join(dir, entry.Name()), &doc); err != nil {
+			continue
+		}
+		result = append(result, doc)
+	}
+	return result, nil
+}
+
+func (s *FileStore) DeleteDocument(collectionID, id string) error {
+	err := os.Remove(filepath.Join(s.dir, "collections", collectionID, "documents", id+".json"))
 	if os.IsNotExist(err) {
 		return nil
 	}

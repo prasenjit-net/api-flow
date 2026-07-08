@@ -2,6 +2,7 @@ package domain
 
 import (
 	"fmt"
+	"regexp"
 	"strings"
 )
 
@@ -69,6 +70,25 @@ func ValidateFlow(flow Flow) []FlowValidationError {
 			if strings.TrimSpace(node.Data.TemplateID) == "" {
 				add(FlowValidationError{Code: "template_required", Message: "template node must select a template", NodeID: node.ID, Field: "data.templateId"})
 			}
+		case NodeTypeDataMapper:
+			if strings.TrimSpace(node.Data.CollectionID) == "" {
+				add(FlowValidationError{Code: "collection_required", Message: "Data Mapper node must select a collection", NodeID: node.ID, Field: "data.collectionId"})
+			}
+			if !DataMapperOperations[node.Data.Operation] {
+				add(FlowValidationError{Code: "data_mapper_operation_invalid", Message: fmt.Sprintf("unsupported data mapper operation %q", node.Data.Operation), NodeID: node.ID, Field: "data.operation"})
+			}
+			switch node.Data.Operation {
+			case "findOne", "update", "upsert", "delete":
+				if len(node.Data.QueryMappings) == 0 {
+					add(FlowValidationError{Code: "data_mapper_query_required", Message: "this operation requires at least one query mapping to identify a target document", NodeID: node.ID, Field: "data.queryMappings"})
+				}
+			}
+			switch node.Data.Operation {
+			case "insert", "update", "upsert":
+				if len(node.Data.BodyMappings) == 0 {
+					add(FlowValidationError{Code: "data_mapper_body_required", Message: "this operation requires at least one body mapping", NodeID: node.ID, Field: "data.bodyMappings"})
+				}
+			}
 		default:
 			add(FlowValidationError{Code: "node_type_invalid", Message: fmt.Sprintf("unsupported node type %q", node.Type), NodeID: node.ID, Field: "type"})
 		}
@@ -83,36 +103,13 @@ func ValidateFlow(flow Flow) []FlowValidationError {
 	}
 
 	for _, node := range flow.Nodes {
-		keys := make(map[string]struct{}, len(node.Data.Mappings))
-		for i, mapping := range node.Data.Mappings {
-			field := fmt.Sprintf("data.mappings[%d]", i)
-			switch mapping.Type {
-			case "", "context":
-				if strings.TrimSpace(mapping.Source) == "" {
-					add(FlowValidationError{Code: "mapping_source_required", Message: "mapping source is required", NodeID: node.ID, Field: field + ".source"})
-				} else if sourceErr := validateContextSource(mapping.Source, nodesByName); sourceErr != "" {
-					add(FlowValidationError{Code: "mapping_source_invalid", Message: sourceErr, NodeID: node.ID, Field: field + ".source"})
-				}
-			case "constant":
-			default:
-				add(FlowValidationError{Code: "mapping_type_invalid", Message: fmt.Sprintf("unsupported mapping type %q", mapping.Type), NodeID: node.ID, Field: field + ".type"})
-			}
-			key := strings.TrimSpace(mapping.Key)
-			if key == "" {
-				add(FlowValidationError{Code: "mapping_key_required", Message: "mapping input key is required", NodeID: node.ID, Field: field + ".key"})
-			} else if !NodeNamePattern.MatchString(key) {
-				add(FlowValidationError{
-					Code:    "mapping_key_invalid",
-					Message: "mapping input key must start with a lowercase letter or number and contain only lowercase letters, numbers, '-' or '_' (maximum 64 characters)",
-					NodeID:  node.ID,
-					Field:   field + ".key",
-				})
-			} else if _, exists := keys[key]; exists {
-				add(FlowValidationError{Code: "mapping_key_duplicate", Message: fmt.Sprintf("input key %q is mapped more than once", key), NodeID: node.ID, Field: field + ".key"})
-			} else {
-				keys[key] = struct{}{}
-			}
-		}
+		validateMappingList(node, node.Data.Mappings, "data.mappings", nodesByName, mappingValidationOptions{enforceUnique: true}, add)
+		validateMappingList(node, node.Data.BodyMappings, "data.bodyMappings", nodesByName, mappingValidationOptions{enforceUnique: true}, add)
+		validateMappingList(node, node.Data.QueryMappings, "data.queryMappings", nodesByName, mappingValidationOptions{
+			keyPattern:      QueryFieldPattern,
+			keyPatternError: "query field must be a dotted path of lowercase letters, numbers, '-' or '_' segments (e.g. profile.age)",
+			validateOperator: true,
+		}, add)
 	}
 
 	outgoing := make(map[string][]Edge, len(flow.Nodes))
@@ -218,24 +215,9 @@ func ValidateFlow(flow Flow) []FlowValidationError {
 
 	dominators := calculateDominators(startID, reachable, incoming)
 	for _, node := range flow.Nodes {
-		for i, mapping := range node.Data.Mappings {
-			if mapping.Type == "constant" {
-				continue
-			}
-			referencedName, referencesNode := referencedNodeName(mapping.Source)
-			if !referencesNode {
-				continue
-			}
-			referenced, exists := nodesByName[referencedName]
-			if exists && !dominators[node.ID][referenced.ID] {
-				add(FlowValidationError{
-					Code:    "mapping_source_not_available",
-					Message: fmt.Sprintf("node output %q is not available on every path to this node", referencedName),
-					NodeID:  node.ID,
-					Field:   fmt.Sprintf("data.mappings[%d].source", i),
-				})
-			}
-		}
+		checkMappingReachability(node, node.Data.Mappings, "data.mappings", nodesByName, dominators, add)
+		checkMappingReachability(node, node.Data.QueryMappings, "data.queryMappings", nodesByName, dominators, add)
+		checkMappingReachability(node, node.Data.BodyMappings, "data.bodyMappings", nodesByName, dominators, add)
 	}
 	for _, edge := range flow.Edges {
 		if edge.Condition == nil {
@@ -304,6 +286,90 @@ func validateCondition(condition Condition, edgeID, field string, nodesByName ma
 		}
 	default:
 		add("condition_type_invalid", fmt.Sprintf("unsupported condition type %q", condition.Type), field+".type")
+	}
+}
+
+var validConditionOperators = map[ConditionOperator]bool{
+	ConditionOperatorEquals:             true,
+	ConditionOperatorNotEquals:          true,
+	ConditionOperatorGreaterThan:        true,
+	ConditionOperatorGreaterThanOrEqual: true,
+	ConditionOperatorLessThan:           true,
+	ConditionOperatorLessThanOrEqual:    true,
+	ConditionOperatorContains:           true,
+	ConditionOperatorStartsWith:         true,
+	ConditionOperatorEndsWith:           true,
+	ConditionOperatorIn:                 true,
+	ConditionOperatorExists:             true,
+	ConditionOperatorNotExists:          true,
+}
+
+type mappingValidationOptions struct {
+	keyPattern       *regexp.Regexp
+	keyPatternError  string
+	enforceUnique    bool
+	validateOperator bool
+}
+
+func validateMappingList(node Node, mappings []Mapping, fieldPrefix string, nodesByName map[string]Node, opts mappingValidationOptions, add func(FlowValidationError)) {
+	pattern := opts.keyPattern
+	if pattern == nil {
+		pattern = NodeNamePattern
+	}
+	patternErr := opts.keyPatternError
+	if patternErr == "" {
+		patternErr = "mapping input key must start with a lowercase letter or number and contain only lowercase letters, numbers, '-' or '_' (maximum 64 characters)"
+	}
+	keys := make(map[string]struct{}, len(mappings))
+	for i, mapping := range mappings {
+		field := fmt.Sprintf("%s[%d]", fieldPrefix, i)
+		switch mapping.Type {
+		case "", "context":
+			if strings.TrimSpace(mapping.Source) == "" {
+				add(FlowValidationError{Code: "mapping_source_required", Message: "mapping source is required", NodeID: node.ID, Field: field + ".source"})
+			} else if sourceErr := validateContextSource(mapping.Source, nodesByName); sourceErr != "" {
+				add(FlowValidationError{Code: "mapping_source_invalid", Message: sourceErr, NodeID: node.ID, Field: field + ".source"})
+			}
+		case "constant":
+		default:
+			add(FlowValidationError{Code: "mapping_type_invalid", Message: fmt.Sprintf("unsupported mapping type %q", mapping.Type), NodeID: node.ID, Field: field + ".type"})
+		}
+		key := strings.TrimSpace(mapping.Key)
+		if key == "" {
+			add(FlowValidationError{Code: "mapping_key_required", Message: "mapping input key is required", NodeID: node.ID, Field: field + ".key"})
+		} else if !pattern.MatchString(key) {
+			add(FlowValidationError{Code: "mapping_key_invalid", Message: patternErr, NodeID: node.ID, Field: field + ".key"})
+		} else if opts.enforceUnique {
+			if _, exists := keys[key]; exists {
+				add(FlowValidationError{Code: "mapping_key_duplicate", Message: fmt.Sprintf("input key %q is mapped more than once", key), NodeID: node.ID, Field: field + ".key"})
+			} else {
+				keys[key] = struct{}{}
+			}
+		}
+		if opts.validateOperator && mapping.Operator != "" && !validConditionOperators[ConditionOperator(mapping.Operator)] {
+			add(FlowValidationError{Code: "mapping_operator_invalid", Message: fmt.Sprintf("unsupported operator %q", mapping.Operator), NodeID: node.ID, Field: field + ".operator"})
+		}
+	}
+}
+
+func checkMappingReachability(node Node, mappings []Mapping, fieldPrefix string, nodesByName map[string]Node, dominators map[string]map[string]bool, add func(FlowValidationError)) {
+	for i, mapping := range mappings {
+		if mapping.Type == "constant" {
+			continue
+		}
+		referencedName, referencesNode := referencedNodeName(mapping.Source)
+		if !referencesNode {
+			continue
+		}
+		referenced, exists := nodesByName[referencedName]
+		if exists && !dominators[node.ID][referenced.ID] {
+			add(FlowValidationError{
+				Code:    "mapping_source_not_available",
+				Message: fmt.Sprintf("node output %q is not available on every path to this node", referencedName),
+				NodeID:  node.ID,
+				Field:   fmt.Sprintf("%s[%d].source", fieldPrefix, i),
+			})
+		}
 	}
 }
 

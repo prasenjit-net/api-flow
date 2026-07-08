@@ -10,6 +10,11 @@ const CurrentFlowVersion = 4
 
 var NodeNamePattern = regexp.MustCompile(`^[a-z0-9][a-z0-9_-]{0,63}$`)
 
+// QueryFieldPattern allows dotted paths (e.g. "profile.age") since a Data Mapper
+// query mapping's key addresses a field inside a schemaless document, not a flow
+// input variable.
+var QueryFieldPattern = regexp.MustCompile(`^[a-z0-9][a-z0-9_-]*(\.[a-z0-9][a-z0-9_-]*)*$`)
+
 type Flow struct {
 	Version     int      `json:"version"`
 	SpecID      string   `json:"specId"`
@@ -26,8 +31,19 @@ const (
 	NodeTypeContextMapper NodeType = "contextMapper"
 	NodeTypeStarlark      NodeType = "starlark"
 	NodeTypeTemplate      NodeType = "template"
+	NodeTypeDataMapper    NodeType = "dataMapper"
 	NodeTypeEnd           NodeType = "end"
 )
+
+// DataMapperOperations are the collection operations a Data Mapper node may perform.
+var DataMapperOperations = map[string]bool{
+	"insert":   true,
+	"findOne":  true,
+	"findMany": true,
+	"update":   true,
+	"upsert":   true,
+	"delete":   true,
+}
 
 type Node struct {
 	ID       string   `json:"id"`
@@ -48,10 +64,14 @@ type Viewport struct {
 }
 
 type NodeData struct {
-	Mappings   []Mapping `json:"mappings,omitempty"`
-	TemplateID string    `json:"templateId,omitempty"`
-	ScriptID   string    `json:"scriptId,omitempty"`
-	Name       string    `json:"name"`
+	Mappings      []Mapping `json:"mappings,omitempty"`
+	TemplateID    string    `json:"templateId,omitempty"`
+	ScriptID      string    `json:"scriptId,omitempty"`
+	Name          string    `json:"name"`
+	CollectionID  string    `json:"collectionId,omitempty"`
+	Operation     string    `json:"operation,omitempty"`
+	QueryMappings []Mapping `json:"queryMappings,omitempty"`
+	BodyMappings  []Mapping `json:"bodyMappings,omitempty"`
 }
 
 type Mapping struct {
@@ -60,6 +80,10 @@ type Mapping struct {
 	Key       string `json:"key"`
 	Value     any    `json:"value,omitempty"`
 	ValueType string `json:"valueType,omitempty"`
+	// Operator is used by Data Mapper query mappings to select a comparison
+	// operator (see ConditionOperator); ignored by every other mapping list,
+	// which always compares with equality.
+	Operator string `json:"operator,omitempty"`
 }
 
 type Edge struct {

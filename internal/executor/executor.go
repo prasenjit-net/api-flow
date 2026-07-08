@@ -133,6 +133,19 @@ func (e *Executor) Execute(w http.ResponseWriter, r *http.Request, flow domain.F
 			}
 			nodeOutput = output
 			contextNodes(ctx)[current.Data.Name] = nodeOutput
+		case domain.NodeTypeDataMapper:
+			filters := resolveQueryFilters(current.Data.QueryMappings, ctx)
+			bodyValues := buildMappingValues(current.Data.BodyMappings, ctx)
+			nodeInput = map[string]any{"query": filterSummary(filters), "body": bodyValues}
+			output, err := e.executeDataMapper(current.Data.CollectionID, current.Data.Operation, filters, bodyValues)
+			if err != nil {
+				nodeErr = fmt.Errorf("data mapper node %q failed: %v", current.Data.Name, err)
+				recorder.recordNode(current, nodeStartedAt, nodeInput, nil, nodeErr)
+				fail(http.StatusInternalServerError, nodeErr.Error())
+				return
+			}
+			nodeOutput = output
+			contextNodes(ctx)[current.Data.Name] = nodeOutput
 		case domain.NodeTypeTemplate:
 			nodeInput = buildTemplateContext(current, ctx)
 			candidate, output, err := e.executeTemplate(flow.SpecID, flow.OperationID, current, nodeInput)
@@ -464,8 +477,12 @@ func contextNodes(context map[string]any) map[string]any {
 }
 
 func buildNodeInput(node domain.Node, context map[string]any) map[string]any {
-	input := make(map[string]any, len(node.Data.Mappings))
-	for _, mapping := range node.Data.Mappings {
+	return buildMappingValues(node.Data.Mappings, context)
+}
+
+func buildMappingValues(mappings []domain.Mapping, context map[string]any) map[string]any {
+	input := make(map[string]any, len(mappings))
+	for _, mapping := range mappings {
 		if mapping.Type == "constant" {
 			input[mapping.Key] = mapping.Value
 			continue
@@ -477,6 +494,56 @@ func buildNodeInput(node domain.Node, context map[string]any) map[string]any {
 		input[mapping.Key] = value
 	}
 	return input
+}
+
+type resolvedFilter struct {
+	key      string
+	operator domain.ConditionOperator
+	value    any
+}
+
+func resolveQueryFilters(mappings []domain.Mapping, context map[string]any) []resolvedFilter {
+	filters := make([]resolvedFilter, 0, len(mappings))
+	for _, mapping := range mappings {
+		var value any
+		if mapping.Type == "constant" {
+			value = mapping.Value
+		} else {
+			value, _ = ResolveContextPath(context, mapping.Source)
+		}
+		operator := domain.ConditionOperator(mapping.Operator)
+		if operator == "" {
+			operator = domain.ConditionOperatorEquals
+		}
+		filters = append(filters, resolvedFilter{key: mapping.Key, operator: operator, value: value})
+	}
+	return filters
+}
+
+func filterSummary(filters []resolvedFilter) []map[string]any {
+	summary := make([]map[string]any, 0, len(filters))
+	for _, filter := range filters {
+		summary = append(summary, map[string]any{
+			"key":      filter.key,
+			"operator": filter.operator,
+			"value":    filter.value,
+		})
+	}
+	return summary
+}
+
+func matchesFilters(docData map[string]any, filters []resolvedFilter) (bool, error) {
+	for _, filter := range filters {
+		actual, exists := ResolveContextPath(docData, filter.key)
+		matched, err := evaluateRule(filter.operator, actual, exists, filter.value)
+		if err != nil {
+			return false, err
+		}
+		if !matched {
+			return false, nil
+		}
+	}
+	return true, nil
 }
 
 // buildTemplateContext is the sole full-context exception to the mapped-only

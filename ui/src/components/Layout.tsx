@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { NavLink, Outlet } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
-import { Activity, BarChart3, Code2, FileJson, FileCode, Menu, Moon, Monitor, Sun, X } from 'lucide-react'
+import { Activity, BarChart3, Code2, Database, FileJson, FileCode, Menu, Moon, Monitor, Sun, X } from 'lucide-react'
 import clsx from 'clsx'
 import { LogoFull } from './Logo'
 import { metaApi } from '../services/api'
@@ -14,6 +14,7 @@ const navItems = [
   { to: '/specifications', label: 'Specifications', icon: FileJson },
   { to: '/templates', label: 'Templates', icon: FileCode },
   { to: '/scripts', label: 'Scripts', icon: Code2 },
+  { to: '/collections', label: 'Collections', icon: Database },
   { to: '/traces', label: 'Traces', icon: Activity },
 ]
 

@@ -29,7 +29,7 @@ export default function TemplateNodeModal({
   const selected = templates.find(t => t.id === templateId)
 
   function handleSave() {
-    onSave(name.trim(), templateId, mappings.filter(isCompleteMapping))
+    onSave(name.trim(), templateId, mappings.filter(m => isCompleteMapping(m)))
     onClose()
   }
 

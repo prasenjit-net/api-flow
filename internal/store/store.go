@@ -30,6 +30,16 @@ type Store interface {
 	ListScripts() ([]domain.Script, error)
 	DeleteScript(id string) error
 
+	SaveCollection(collection domain.Collection) error
+	GetCollection(id string) (domain.Collection, error)
+	ListCollections() ([]domain.Collection, error)
+	DeleteCollection(id string) error
+
+	SaveDocument(collectionID string, doc domain.Document) error
+	GetDocument(collectionID, id string) (domain.Document, error)
+	ListDocuments(collectionID string) ([]domain.Document, error)
+	DeleteDocument(collectionID, id string) error
+
 	SaveTrace(trace domain.Trace) error
 	GetTrace(id string) (domain.Trace, error)
 	ListTraces() ([]domain.TraceSummary, error)

@@ -69,7 +69,7 @@ export default function StarlarkNodeModal({
             type="button"
             disabled={!name.trim() || !scriptId}
             onClick={() => {
-              onSave(name.trim(), scriptId, mappings.filter(isCompleteMapping))
+              onSave(name.trim(), scriptId, mappings.filter(m => isCompleteMapping(m)))
               onClose()
             }}
             className="rounded bg-blue-600 px-4 py-1.5 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50"
