@@ -54,9 +54,10 @@ export default function SpecificationsPage() {
             </div>
           ) : (
             <div>
-              <div className="grid grid-cols-[1fr_140px_120px_40px] items-center gap-4 border-b border-slate-200 bg-slate-50 px-6 py-2 text-[11px] font-semibold uppercase tracking-wider text-slate-400 dark:border-slate-800 dark:bg-slate-900">
+              <div className="grid grid-cols-[1fr_140px_110px_120px_40px] items-center gap-4 border-b border-slate-200 bg-slate-50 px-6 py-2 text-[11px] font-semibold uppercase tracking-wider text-slate-400 dark:border-slate-800 dark:bg-slate-900">
                 <span>Name</span>
                 <span>Context Path</span>
+                <span>Published</span>
                 <span>Uploaded</span>
                 <span />
               </div>
@@ -64,16 +65,24 @@ export default function SpecificationsPage() {
                 {specs.map(spec => (
                   <div
                     key={spec.id}
-                    className="grid grid-cols-[1fr_140px_120px_40px] items-center gap-4 px-6 py-3 hover:bg-slate-50 dark:hover:bg-slate-900/50"
+                    className="grid grid-cols-[1fr_140px_110px_120px_40px] items-center gap-4 px-6 py-3 hover:bg-slate-50 dark:hover:bg-slate-900/50"
                   >
                     <Link
                       to={`/specifications/${spec.id}`}
-                      className="flex items-center gap-1.5 text-sm font-medium text-slate-800 hover:text-blue-600 dark:text-slate-200 dark:hover:text-blue-400"
+                      className="flex min-w-0 items-center gap-1.5 text-sm font-medium text-slate-800 hover:text-blue-600 dark:text-slate-200 dark:hover:text-blue-400"
                     >
-                      {spec.name}
+                      <span className="truncate">{spec.name}</span>
+                      {spec.draftDirty && (
+                        <span className="shrink-0 rounded bg-amber-50 px-1.5 py-0.5 text-[10px] font-semibold text-amber-700 dark:bg-amber-950/30 dark:text-amber-300">
+                          dirty
+                        </span>
+                      )}
                       <ChevronRight className="h-3.5 w-3.5 text-slate-300 dark:text-slate-600" />
                     </Link>
                     <code className="font-mono text-xs text-slate-500 dark:text-slate-400">{spec.contextPath}</code>
+                    <span className="text-xs text-slate-500 dark:text-slate-400">
+                      {spec.publishedVersion > 0 ? `v${spec.publishedVersion}` : 'none'}
+                    </span>
                     <span className="text-xs text-slate-400">
                       {new Date(spec.uploadedAt).toLocaleDateString()}
                     </span>

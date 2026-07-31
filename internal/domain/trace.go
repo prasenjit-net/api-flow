@@ -39,31 +39,33 @@ type TraceEdge struct {
 }
 
 type Trace struct {
-	ID          string           `json:"id"`
-	SpecID      string           `json:"specId"`
-	OperationID string           `json:"operationId"`
-	Method      string           `json:"method"`
-	Path        string           `json:"path"`
-	StartedAt   time.Time        `json:"startedAt"`
-	FinishedAt  time.Time        `json:"finishedAt"`
-	DurationMS  int64            `json:"durationMs"`
-	StatusCode  int              `json:"statusCode"`
-	Error       string           `json:"error,omitempty"`
-	Request     TraceHTTPMessage `json:"request"`
-	Response    TraceHTTPMessage `json:"response"`
-	Context     map[string]any   `json:"context"`
-	Nodes       []TraceNode      `json:"nodes"`
-	Edges       []TraceEdge      `json:"edges"`
+	ID             string           `json:"id"`
+	SpecID         string           `json:"specId"`
+	OperationID    string           `json:"operationId"`
+	ReleaseVersion int              `json:"releaseVersion,omitempty"`
+	Method         string           `json:"method"`
+	Path           string           `json:"path"`
+	StartedAt      time.Time        `json:"startedAt"`
+	FinishedAt     time.Time        `json:"finishedAt"`
+	DurationMS     int64            `json:"durationMs"`
+	StatusCode     int              `json:"statusCode"`
+	Error          string           `json:"error,omitempty"`
+	Request        TraceHTTPMessage `json:"request"`
+	Response       TraceHTTPMessage `json:"response"`
+	Context        map[string]any   `json:"context"`
+	Nodes          []TraceNode      `json:"nodes"`
+	Edges          []TraceEdge      `json:"edges"`
 }
 
 type TraceSummary struct {
-	ID          string    `json:"id"`
-	SpecID      string    `json:"specId"`
-	OperationID string    `json:"operationId"`
-	Method      string    `json:"method"`
-	Path        string    `json:"path"`
-	StartedAt   time.Time `json:"startedAt"`
-	DurationMS  int64     `json:"durationMs"`
-	StatusCode  int       `json:"statusCode"`
-	Error       string    `json:"error,omitempty"`
+	ID             string    `json:"id"`
+	SpecID         string    `json:"specId"`
+	OperationID    string    `json:"operationId"`
+	ReleaseVersion int       `json:"releaseVersion,omitempty"`
+	Method         string    `json:"method"`
+	Path           string    `json:"path"`
+	StartedAt      time.Time `json:"startedAt"`
+	DurationMS     int64     `json:"durationMs"`
+	StatusCode     int       `json:"statusCode"`
+	Error          string    `json:"error,omitempty"`
 }

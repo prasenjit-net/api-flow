@@ -15,7 +15,11 @@ import (
 )
 
 func (h *Handler) ListCollections(w http.ResponseWriter, r *http.Request) {
-	collections, err := h.store.ListCollections()
+	specID := chi.URLParam(r, "id")
+	if !h.specExists(w, r, specID) {
+		return
+	}
+	collections, err := h.store.ListCollections(specID)
 	if err != nil {
 		respondError(w, r, http.StatusInternalServerError, err.Error())
 		return
@@ -30,7 +34,11 @@ func (h *Handler) ListCollections(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) GetCollection(w http.ResponseWriter, r *http.Request) {
-	collection, err := h.store.GetCollection(chi.URLParam(r, "collectionId"))
+	specID := chi.URLParam(r, "id")
+	if !h.specExists(w, r, specID) {
+		return
+	}
+	collection, err := h.store.GetCollection(specID, chi.URLParam(r, "collectionId"))
 	if err == store.ErrNotFound {
 		respondError(w, r, http.StatusNotFound, "collection not found")
 		return
@@ -43,6 +51,10 @@ func (h *Handler) GetCollection(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) CreateCollection(w http.ResponseWriter, r *http.Request) {
+	specID := chi.URLParam(r, "id")
+	if !h.specExists(w, r, specID) {
+		return
+	}
 	var collection domain.Collection
 	if err := json.NewDecoder(r.Body).Decode(&collection); err != nil {
 		respondError(w, r, http.StatusBadRequest, "invalid JSON")
@@ -56,7 +68,7 @@ func (h *Handler) CreateCollection(w http.ResponseWriter, r *http.Request) {
 	collection.ID = uuid.New().String()
 	collection.CreatedAt = now
 	collection.UpdatedAt = now
-	if err := h.store.SaveCollection(collection); err != nil {
+	if err := h.store.SaveCollection(specID, collection); err != nil {
 		respondError(w, r, http.StatusInternalServerError, err.Error())
 		return
 	}
@@ -64,8 +76,12 @@ func (h *Handler) CreateCollection(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) UpdateCollection(w http.ResponseWriter, r *http.Request) {
+	specID := chi.URLParam(r, "id")
 	collectionID := chi.URLParam(r, "collectionId")
-	existing, err := h.store.GetCollection(collectionID)
+	if !h.specExists(w, r, specID) {
+		return
+	}
+	existing, err := h.store.GetCollection(specID, collectionID)
 	if err == store.ErrNotFound {
 		respondError(w, r, http.StatusNotFound, "collection not found")
 		return
@@ -86,7 +102,7 @@ func (h *Handler) UpdateCollection(w http.ResponseWriter, r *http.Request) {
 	collection.ID = existing.ID
 	collection.CreatedAt = existing.CreatedAt
 	collection.UpdatedAt = time.Now().UTC()
-	if err := h.store.SaveCollection(collection); err != nil {
+	if err := h.store.SaveCollection(specID, collection); err != nil {
 		respondError(w, r, http.StatusInternalServerError, err.Error())
 		return
 	}
@@ -94,37 +110,24 @@ func (h *Handler) UpdateCollection(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) DeleteCollection(w http.ResponseWriter, r *http.Request) {
+	specID := chi.URLParam(r, "id")
 	collectionID := chi.URLParam(r, "collectionId")
-	if _, err := h.store.GetCollection(collectionID); err == store.ErrNotFound {
+	meta, ok := h.getSpecMeta(w, r, specID)
+	if !ok {
+		return
+	}
+	if _, err := h.store.GetCollection(specID, collectionID); err == store.ErrNotFound {
 		respondError(w, r, http.StatusNotFound, "collection not found")
 		return
 	} else if err != nil {
 		respondError(w, r, http.StatusInternalServerError, err.Error())
 		return
 	}
-	specs, err := h.store.ListSpecMeta()
+
+	references, err := h.draftCollectionReferences(specID, collectionID)
 	if err != nil {
 		respondError(w, r, http.StatusInternalServerError, err.Error())
 		return
-	}
-	var references []map[string]string
-	for _, spec := range specs {
-		flows, err := h.store.ListFlows(spec.ID)
-		if err != nil {
-			respondError(w, r, http.StatusInternalServerError, err.Error())
-			return
-		}
-		for _, flow := range flows {
-			for _, node := range flow.Nodes {
-				if node.Type == domain.NodeTypeDataMapper && node.Data.CollectionID == collectionID {
-					references = append(references, map[string]string{
-						"specId":      spec.ID,
-						"operationId": flow.OperationID,
-						"nodeId":      node.ID,
-					})
-				}
-			}
-		}
 	}
 	if len(references) > 0 {
 		respondJSON(w, http.StatusConflict, withRequestID(r, map[string]any{
@@ -133,7 +136,18 @@ func (h *Handler) DeleteCollection(w http.ResponseWriter, r *http.Request) {
 		}))
 		return
 	}
-	if err := h.store.DeleteCollection(collectionID); err != nil {
+	if meta.PublishedVersion > 0 {
+		bundle, err := h.store.GetRelease(specID, meta.PublishedVersion)
+		if err != nil {
+			respondError(w, r, http.StatusInternalServerError, err.Error())
+			return
+		}
+		if releaseReferencesCollection(bundle, collectionID) {
+			respondError(w, r, http.StatusConflict, "collection is referenced by the published release")
+			return
+		}
+	}
+	if err := h.store.DeleteCollection(specID, collectionID); err != nil {
 		respondError(w, r, http.StatusInternalServerError, err.Error())
 		return
 	}
@@ -141,15 +155,12 @@ func (h *Handler) DeleteCollection(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) ListDocuments(w http.ResponseWriter, r *http.Request) {
+	specID := chi.URLParam(r, "id")
 	collectionID := chi.URLParam(r, "collectionId")
-	if _, err := h.store.GetCollection(collectionID); err == store.ErrNotFound {
-		respondError(w, r, http.StatusNotFound, "collection not found")
-		return
-	} else if err != nil {
-		respondError(w, r, http.StatusInternalServerError, err.Error())
+	if !h.collectionExistsForRequest(w, r, specID, collectionID) {
 		return
 	}
-	docs, err := h.store.ListDocuments(collectionID)
+	docs, err := h.store.ListDocuments(specID, collectionID)
 	if err != nil {
 		respondError(w, r, http.StatusInternalServerError, err.Error())
 		return
@@ -164,8 +175,12 @@ func (h *Handler) ListDocuments(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) GetDocument(w http.ResponseWriter, r *http.Request) {
+	specID := chi.URLParam(r, "id")
 	collectionID := chi.URLParam(r, "collectionId")
-	doc, err := h.store.GetDocument(collectionID, chi.URLParam(r, "documentId"))
+	if !h.specExists(w, r, specID) {
+		return
+	}
+	doc, err := h.store.GetDocument(specID, collectionID, chi.URLParam(r, "documentId"))
 	if err == store.ErrNotFound {
 		respondError(w, r, http.StatusNotFound, "document not found")
 		return
@@ -178,12 +193,9 @@ func (h *Handler) GetDocument(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) CreateDocument(w http.ResponseWriter, r *http.Request) {
+	specID := chi.URLParam(r, "id")
 	collectionID := chi.URLParam(r, "collectionId")
-	if _, err := h.store.GetCollection(collectionID); err == store.ErrNotFound {
-		respondError(w, r, http.StatusNotFound, "collection not found")
-		return
-	} else if err != nil {
-		respondError(w, r, http.StatusInternalServerError, err.Error())
+	if !h.collectionExistsForRequest(w, r, specID, collectionID) {
 		return
 	}
 	var data map[string]any
@@ -193,7 +205,7 @@ func (h *Handler) CreateDocument(w http.ResponseWriter, r *http.Request) {
 	}
 	now := time.Now().UTC()
 	doc := domain.Document{ID: uuid.New().String(), CollectionID: collectionID, Data: data, CreatedAt: now, UpdatedAt: now}
-	if err := h.store.SaveDocument(collectionID, doc); err != nil {
+	if err := h.store.SaveDocument(specID, collectionID, doc); err != nil {
 		respondError(w, r, http.StatusInternalServerError, err.Error())
 		return
 	}
@@ -201,9 +213,13 @@ func (h *Handler) CreateDocument(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) UpdateDocument(w http.ResponseWriter, r *http.Request) {
+	specID := chi.URLParam(r, "id")
 	collectionID := chi.URLParam(r, "collectionId")
 	documentID := chi.URLParam(r, "documentId")
-	existing, err := h.store.GetDocument(collectionID, documentID)
+	if !h.specExists(w, r, specID) {
+		return
+	}
+	existing, err := h.store.GetDocument(specID, collectionID, documentID)
 	if err == store.ErrNotFound {
 		respondError(w, r, http.StatusNotFound, "document not found")
 		return
@@ -224,7 +240,7 @@ func (h *Handler) UpdateDocument(w http.ResponseWriter, r *http.Request) {
 		CreatedAt:    existing.CreatedAt,
 		UpdatedAt:    time.Now().UTC(),
 	}
-	if err := h.store.SaveDocument(collectionID, doc); err != nil {
+	if err := h.store.SaveDocument(specID, collectionID, doc); err != nil {
 		respondError(w, r, http.StatusInternalServerError, err.Error())
 		return
 	}
@@ -232,18 +248,67 @@ func (h *Handler) UpdateDocument(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) DeleteDocument(w http.ResponseWriter, r *http.Request) {
+	specID := chi.URLParam(r, "id")
 	collectionID := chi.URLParam(r, "collectionId")
 	documentID := chi.URLParam(r, "documentId")
-	if _, err := h.store.GetDocument(collectionID, documentID); err == store.ErrNotFound {
+	if !h.specExists(w, r, specID) {
+		return
+	}
+	if _, err := h.store.GetDocument(specID, collectionID, documentID); err == store.ErrNotFound {
 		respondError(w, r, http.StatusNotFound, "document not found")
 		return
 	} else if err != nil {
 		respondError(w, r, http.StatusInternalServerError, err.Error())
 		return
 	}
-	if err := h.store.DeleteDocument(collectionID, documentID); err != nil {
+	if err := h.store.DeleteDocument(specID, collectionID, documentID); err != nil {
 		respondError(w, r, http.StatusInternalServerError, err.Error())
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
+}
+
+func (h *Handler) collectionExistsForRequest(w http.ResponseWriter, r *http.Request, specID, collectionID string) bool {
+	if !h.specExists(w, r, specID) {
+		return false
+	}
+	if _, err := h.store.GetCollection(specID, collectionID); err == store.ErrNotFound {
+		respondError(w, r, http.StatusNotFound, "collection not found")
+		return false
+	} else if err != nil {
+		respondError(w, r, http.StatusInternalServerError, err.Error())
+		return false
+	}
+	return true
+}
+
+func (h *Handler) draftCollectionReferences(specID, collectionID string) ([]map[string]string, error) {
+	flows, err := h.store.ListFlows(specID)
+	if err != nil {
+		return nil, err
+	}
+	var references []map[string]string
+	for _, flow := range flows {
+		for _, node := range flow.Nodes {
+			if node.Type == domain.NodeTypeDataMapper && node.Data.CollectionID == collectionID {
+				references = append(references, map[string]string{
+					"specId":      specID,
+					"operationId": flow.OperationID,
+					"nodeId":      node.ID,
+				})
+			}
+		}
+	}
+	return references, nil
+}
+
+func releaseReferencesCollection(bundle domain.ReleaseBundle, collectionID string) bool {
+	for _, flow := range bundle.Flows {
+		for _, node := range flow.Nodes {
+			if node.Type == domain.NodeTypeDataMapper && node.Data.CollectionID == collectionID {
+				return true
+			}
+		}
+	}
+	return false
 }

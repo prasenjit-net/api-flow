@@ -1,11 +1,15 @@
 package store
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
+	"time"
 
 	"github.com/prasenjit-net/api-flow/internal/domain"
 )
@@ -15,22 +19,67 @@ type FileStore struct {
 }
 
 func New(dir string) (*FileStore, error) {
-	for _, sub := range []string{filepath.Join(dir, "specs"), filepath.Join(dir, "scripts"), filepath.Join(dir, "traces"), filepath.Join(dir, "collections")} {
+	for _, sub := range []string{filepath.Join(dir, "specs"), filepath.Join(dir, "scripts"), filepath.Join(dir, "traces")} {
 		if err := os.MkdirAll(sub, 0o755); err != nil {
 			return nil, fmt.Errorf("create data dir %s: %w", sub, err)
 		}
 	}
 	store := &FileStore{dir: dir}
+	if err := store.migrateSpecDraftLayout(); err != nil {
+		return nil, fmt.Errorf("migrate specs to draft layout: %w", err)
+	}
 	if err := store.migrateGlobalTemplates(); err != nil {
 		return nil, fmt.Errorf("migrate global templates: %w", err)
+	}
+	if err := store.migrateGlobalCollections(); err != nil {
+		return nil, fmt.Errorf("migrate global collections: %w", err)
+	}
+	if err := store.ensureInitialPublishedReleases(); err != nil {
+		return nil, fmt.Errorf("create initial releases: %w", err)
 	}
 	return store, nil
 }
 
+func (s *FileStore) specDir(specID string) string {
+	return filepath.Join(s.dir, "specs", specID)
+}
+
+func (s *FileStore) draftDir(specID string) string {
+	return filepath.Join(s.specDir(specID), "draft")
+}
+
+func (s *FileStore) draftSpecFilePath(specID string) string {
+	return filepath.Join(s.draftDir(specID), "spec.raw")
+}
+
+func (s *FileStore) draftFlowsDir(specID string) string {
+	return filepath.Join(s.draftDir(specID), "flows")
+}
+
+func (s *FileStore) draftTemplatesDir(specID string) string {
+	return filepath.Join(s.draftDir(specID), "templates")
+}
+
+func (s *FileStore) draftCollectionsDir(specID string) string {
+	return filepath.Join(s.draftDir(specID), "collections")
+}
+
+func (s *FileStore) liveCollectionsDir(specID string) string {
+	return filepath.Join(s.specDir(specID), "collections")
+}
+
+func (s *FileStore) releasesDir(specID string) string {
+	return filepath.Join(s.specDir(specID), "releases")
+}
+
+func (s *FileStore) releasePath(specID string, version int) string {
+	return filepath.Join(s.releasesDir(specID), fmt.Sprintf("v%d.json", version))
+}
+
 func (s *FileStore) SaveSpecMeta(meta domain.SpecMeta) error {
-	dir := filepath.Join(s.dir, "specs", meta.ID)
-	for _, sub := range []string{"flows", "templates"} {
-		if err := os.MkdirAll(filepath.Join(dir, sub), 0o755); err != nil {
+	dir := s.specDir(meta.ID)
+	for _, sub := range []string{s.draftFlowsDir(meta.ID), s.draftTemplatesDir(meta.ID), s.draftCollectionsDir(meta.ID), s.liveCollectionsDir(meta.ID), s.releasesDir(meta.ID)} {
+		if err := os.MkdirAll(sub, 0o755); err != nil {
 			return err
 		}
 	}
@@ -39,7 +88,7 @@ func (s *FileStore) SaveSpecMeta(meta domain.SpecMeta) error {
 
 func (s *FileStore) GetSpecMeta(id string) (domain.SpecMeta, error) {
 	var meta domain.SpecMeta
-	return meta, readJSON(filepath.Join(s.dir, "specs", id, "meta.json"), &meta)
+	return meta, readJSON(filepath.Join(s.specDir(id), "meta.json"), &meta)
 }
 
 func (s *FileStore) ListSpecMeta() ([]domain.SpecMeta, error) {
@@ -65,7 +114,7 @@ func (s *FileStore) ListSpecMeta() ([]domain.SpecMeta, error) {
 }
 
 func (s *FileStore) DeleteSpec(id string) error {
-	err := os.RemoveAll(filepath.Join(s.dir, "specs", id))
+	err := os.RemoveAll(s.specDir(id))
 	if os.IsNotExist(err) {
 		return nil
 	}
@@ -73,14 +122,14 @@ func (s *FileStore) DeleteSpec(id string) error {
 }
 
 func (s *FileStore) SaveSpecFile(id string, data []byte) error {
-	if err := os.MkdirAll(filepath.Join(s.dir, "specs", id), 0o755); err != nil {
+	if err := os.MkdirAll(s.draftDir(id), 0o755); err != nil {
 		return err
 	}
-	return os.WriteFile(filepath.Join(s.dir, "specs", id, "spec.raw"), data, 0o644)
+	return os.WriteFile(s.draftSpecFilePath(id), data, 0o644)
 }
 
 func (s *FileStore) GetSpecFile(id string) ([]byte, error) {
-	data, err := os.ReadFile(filepath.Join(s.dir, "specs", id, "spec.raw"))
+	data, err := os.ReadFile(s.draftSpecFilePath(id))
 	if os.IsNotExist(err) {
 		return nil, ErrNotFound
 	}
@@ -88,7 +137,7 @@ func (s *FileStore) GetSpecFile(id string) ([]byte, error) {
 }
 
 func (s *FileStore) SaveFlow(flow domain.Flow) error {
-	dir := filepath.Join(s.dir, "specs", flow.SpecID, "flows")
+	dir := s.draftFlowsDir(flow.SpecID)
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return err
 	}
@@ -97,11 +146,11 @@ func (s *FileStore) SaveFlow(flow domain.Flow) error {
 
 func (s *FileStore) GetFlow(specID, opID string) (domain.Flow, error) {
 	var flow domain.Flow
-	return flow, readJSON(filepath.Join(s.dir, "specs", specID, "flows", opID+".json"), &flow)
+	return flow, readJSON(filepath.Join(s.draftFlowsDir(specID), opID+".json"), &flow)
 }
 
 func (s *FileStore) ListFlows(specID string) ([]domain.Flow, error) {
-	dir := filepath.Join(s.dir, "specs", specID, "flows")
+	dir := s.draftFlowsDir(specID)
 	entries, err := os.ReadDir(dir)
 	if err != nil {
 		if os.IsNotExist(err) {
@@ -124,7 +173,7 @@ func (s *FileStore) ListFlows(specID string) ([]domain.Flow, error) {
 }
 
 func (s *FileStore) SaveTemplate(specID string, t domain.Template) error {
-	dir := filepath.Join(s.dir, "specs", specID, "templates")
+	dir := s.draftTemplatesDir(specID)
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return err
 	}
@@ -134,11 +183,11 @@ func (s *FileStore) SaveTemplate(specID string, t domain.Template) error {
 
 func (s *FileStore) GetTemplate(specID, id string) (domain.Template, error) {
 	var t domain.Template
-	return t, readJSON(filepath.Join(s.dir, "specs", specID, "templates", id+".json"), &t)
+	return t, readJSON(filepath.Join(s.draftTemplatesDir(specID), id+".json"), &t)
 }
 
 func (s *FileStore) ListTemplates(specID string) ([]domain.Template, error) {
-	dir := filepath.Join(s.dir, "specs", specID, "templates")
+	dir := s.draftTemplatesDir(specID)
 	entries, err := os.ReadDir(dir)
 	if err != nil {
 		if os.IsNotExist(err) {
@@ -161,7 +210,7 @@ func (s *FileStore) ListTemplates(specID string) ([]domain.Template, error) {
 }
 
 func (s *FileStore) DeleteTemplate(specID, id string) error {
-	err := os.Remove(filepath.Join(s.dir, "specs", specID, "templates", id+".json"))
+	err := os.Remove(filepath.Join(s.draftTemplatesDir(specID), id+".json"))
 	if os.IsNotExist(err) {
 		return nil
 	}
@@ -211,21 +260,24 @@ func (s *FileStore) DeleteScript(id string) error {
 	return err
 }
 
-func (s *FileStore) SaveCollection(c domain.Collection) error {
-	dir := filepath.Join(s.dir, "collections", c.ID)
-	if err := os.MkdirAll(filepath.Join(dir, "documents"), 0o755); err != nil {
+func (s *FileStore) SaveCollection(specID string, c domain.Collection) error {
+	dir := filepath.Join(s.draftCollectionsDir(specID), c.ID)
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return err
+	}
+	if err := os.MkdirAll(filepath.Join(s.liveCollectionsDir(specID), c.ID, "documents"), 0o755); err != nil {
 		return err
 	}
 	return writeJSON(filepath.Join(dir, "meta.json"), c)
 }
 
-func (s *FileStore) GetCollection(id string) (domain.Collection, error) {
+func (s *FileStore) GetCollection(specID, id string) (domain.Collection, error) {
 	var c domain.Collection
-	return c, readJSON(filepath.Join(s.dir, "collections", id, "meta.json"), &c)
+	return c, readJSON(filepath.Join(s.draftCollectionsDir(specID), id, "meta.json"), &c)
 }
 
-func (s *FileStore) ListCollections() ([]domain.Collection, error) {
-	entries, err := os.ReadDir(filepath.Join(s.dir, "collections"))
+func (s *FileStore) ListCollections(specID string) ([]domain.Collection, error) {
+	entries, err := os.ReadDir(s.draftCollectionsDir(specID))
 	if err != nil {
 		if os.IsNotExist(err) {
 			return nil, nil
@@ -238,7 +290,7 @@ func (s *FileStore) ListCollections() ([]domain.Collection, error) {
 			continue
 		}
 		var c domain.Collection
-		if err := readJSON(filepath.Join(s.dir, "collections", e.Name(), "meta.json"), &c); err != nil {
+		if err := readJSON(filepath.Join(s.draftCollectionsDir(specID), e.Name(), "meta.json"), &c); err != nil {
 			continue
 		}
 		result = append(result, c)
@@ -246,29 +298,29 @@ func (s *FileStore) ListCollections() ([]domain.Collection, error) {
 	return result, nil
 }
 
-func (s *FileStore) DeleteCollection(id string) error {
-	err := os.RemoveAll(filepath.Join(s.dir, "collections", id))
+func (s *FileStore) DeleteCollection(specID, id string) error {
+	err := os.RemoveAll(filepath.Join(s.draftCollectionsDir(specID), id))
 	if os.IsNotExist(err) {
 		return nil
 	}
 	return err
 }
 
-func (s *FileStore) SaveDocument(collectionID string, doc domain.Document) error {
-	dir := filepath.Join(s.dir, "collections", collectionID, "documents")
+func (s *FileStore) SaveDocument(specID, collectionID string, doc domain.Document) error {
+	dir := filepath.Join(s.liveCollectionsDir(specID), collectionID, "documents")
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return err
 	}
 	return writeJSON(filepath.Join(dir, doc.ID+".json"), doc)
 }
 
-func (s *FileStore) GetDocument(collectionID, id string) (domain.Document, error) {
+func (s *FileStore) GetDocument(specID, collectionID, id string) (domain.Document, error) {
 	var doc domain.Document
-	return doc, readJSON(filepath.Join(s.dir, "collections", collectionID, "documents", id+".json"), &doc)
+	return doc, readJSON(filepath.Join(s.liveCollectionsDir(specID), collectionID, "documents", id+".json"), &doc)
 }
 
-func (s *FileStore) ListDocuments(collectionID string) ([]domain.Document, error) {
-	dir := filepath.Join(s.dir, "collections", collectionID, "documents")
+func (s *FileStore) ListDocuments(specID, collectionID string) ([]domain.Document, error) {
+	dir := filepath.Join(s.liveCollectionsDir(specID), collectionID, "documents")
 	entries, err := os.ReadDir(dir)
 	if err != nil {
 		if os.IsNotExist(err) {
@@ -290,8 +342,8 @@ func (s *FileStore) ListDocuments(collectionID string) ([]domain.Document, error
 	return result, nil
 }
 
-func (s *FileStore) DeleteDocument(collectionID, id string) error {
-	err := os.Remove(filepath.Join(s.dir, "collections", collectionID, "documents", id+".json"))
+func (s *FileStore) DeleteDocument(specID, collectionID, id string) error {
+	err := os.Remove(filepath.Join(s.liveCollectionsDir(specID), collectionID, "documents", id+".json"))
 	if os.IsNotExist(err) {
 		return nil
 	}
@@ -329,15 +381,16 @@ func (s *FileStore) ListTraces() ([]domain.TraceSummary, error) {
 			continue
 		}
 		result = append(result, domain.TraceSummary{
-			ID:          trace.ID,
-			SpecID:      trace.SpecID,
-			OperationID: trace.OperationID,
-			Method:      trace.Method,
-			Path:        trace.Path,
-			StartedAt:   trace.StartedAt,
-			DurationMS:  trace.DurationMS,
-			StatusCode:  trace.StatusCode,
-			Error:       trace.Error,
+			ID:             trace.ID,
+			SpecID:         trace.SpecID,
+			OperationID:    trace.OperationID,
+			ReleaseVersion: trace.ReleaseVersion,
+			Method:         trace.Method,
+			Path:           trace.Path,
+			StartedAt:      trace.StartedAt,
+			DurationMS:     trace.DurationMS,
+			StatusCode:     trace.StatusCode,
+			Error:          trace.Error,
 		})
 	}
 	return result, nil
@@ -357,6 +410,441 @@ func (s *FileStore) DeleteAllTraces() error {
 		return err
 	}
 	return os.MkdirAll(dir, 0o755)
+}
+
+func (s *FileStore) CreateRelease(specID, notes string) (domain.ReleaseBundle, error) {
+	meta, err := s.GetSpecMeta(specID)
+	if err != nil {
+		return domain.ReleaseBundle{}, err
+	}
+	contentHash, err := s.DraftContentHash(specID)
+	if err != nil {
+		return domain.ReleaseBundle{}, err
+	}
+	specRaw, err := s.GetSpecFile(specID)
+	if err == ErrNotFound {
+		specRaw = nil
+	} else if err != nil {
+		return domain.ReleaseBundle{}, err
+	}
+	flows, err := s.ListFlows(specID)
+	if err != nil {
+		return domain.ReleaseBundle{}, err
+	}
+	templates, err := s.ListTemplates(specID)
+	if err != nil {
+		return domain.ReleaseBundle{}, err
+	}
+	collections, err := s.ListCollections(specID)
+	if err != nil {
+		return domain.ReleaseBundle{}, err
+	}
+	scripts, err := s.referencedScripts(flows)
+	if err != nil {
+		return domain.ReleaseBundle{}, err
+	}
+
+	version := meta.LatestVersion + 1
+	bundle := domain.ReleaseBundle{
+		SpecID:      specID,
+		Version:     version,
+		Notes:       strings.TrimSpace(notes),
+		CreatedAt:   time.Now().UTC(),
+		ContentHash: contentHash,
+		SpecRaw:     specRaw,
+		Flows:       flows,
+		Templates:   templates,
+		Scripts:     scripts,
+		Collections: collections,
+	}
+	if err := os.MkdirAll(s.releasesDir(specID), 0o755); err != nil {
+		return domain.ReleaseBundle{}, err
+	}
+	if err := writeJSONAtomic(s.releasePath(specID, version), bundle); err != nil {
+		return domain.ReleaseBundle{}, err
+	}
+	meta.LatestVersion = version
+	if err := s.SaveSpecMeta(meta); err != nil {
+		return domain.ReleaseBundle{}, err
+	}
+	return bundle, nil
+}
+
+func (s *FileStore) ListReleases(specID string) ([]domain.ReleaseBundle, error) {
+	entries, err := os.ReadDir(s.releasesDir(specID))
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil, nil
+		}
+		return nil, err
+	}
+	releases := make([]domain.ReleaseBundle, 0, len(entries))
+	for _, entry := range entries {
+		if entry.IsDir() || !strings.HasPrefix(entry.Name(), "v") || !strings.HasSuffix(entry.Name(), ".json") {
+			continue
+		}
+		var bundle domain.ReleaseBundle
+		if err := readJSON(filepath.Join(s.releasesDir(specID), entry.Name()), &bundle); err != nil {
+			continue
+		}
+		releases = append(releases, bundle)
+	}
+	sort.Slice(releases, func(i, j int) bool {
+		return releases[i].Version < releases[j].Version
+	})
+	return releases, nil
+}
+
+func (s *FileStore) GetRelease(specID string, version int) (domain.ReleaseBundle, error) {
+	var bundle domain.ReleaseBundle
+	if version <= 0 {
+		return bundle, ErrNotFound
+	}
+	return bundle, readJSON(s.releasePath(specID, version), &bundle)
+}
+
+func (s *FileStore) DeleteRelease(specID string, version int) error {
+	meta, err := s.GetSpecMeta(specID)
+	if err != nil {
+		return err
+	}
+	if meta.PublishedVersion == version {
+		return ErrConflict
+	}
+	err = os.Remove(s.releasePath(specID, version))
+	if os.IsNotExist(err) {
+		return ErrNotFound
+	}
+	if err != nil {
+		return err
+	}
+	if version == meta.LatestVersion {
+		releases, err := s.ListReleases(specID)
+		if err != nil {
+			return err
+		}
+		meta.LatestVersion = 0
+		for _, release := range releases {
+			if release.Version > meta.LatestVersion {
+				meta.LatestVersion = release.Version
+			}
+		}
+		return s.SaveSpecMeta(meta)
+	}
+	return nil
+}
+
+func (s *FileStore) SetPublishedVersion(specID string, version int) error {
+	meta, err := s.GetSpecMeta(specID)
+	if err != nil {
+		return err
+	}
+	if version > 0 {
+		if _, err := s.GetRelease(specID, version); err != nil {
+			return err
+		}
+	}
+	meta.PublishedVersion = version
+	return s.SaveSpecMeta(meta)
+}
+
+func (s *FileStore) DraftContentHash(specID string) (string, error) {
+	specRaw, err := s.GetSpecFile(specID)
+	if err == ErrNotFound {
+		specRaw = nil
+	} else if err != nil {
+		return "", err
+	}
+	flows, err := s.ListFlows(specID)
+	if err != nil {
+		return "", err
+	}
+	templates, err := s.ListTemplates(specID)
+	if err != nil {
+		return "", err
+	}
+	collections, err := s.ListCollections(specID)
+	if err != nil {
+		return "", err
+	}
+	scripts, err := s.referencedScripts(flows)
+	if err != nil {
+		return "", err
+	}
+	sortFlows(flows)
+	sortTemplates(templates)
+	sortCollections(collections)
+	sortScripts(scripts)
+	payload := struct {
+		SpecRaw     []byte              `json:"specRaw"`
+		Flows       []domain.Flow       `json:"flows"`
+		Templates   []domain.Template   `json:"templates"`
+		Scripts     []domain.Script     `json:"scripts"`
+		Collections []domain.Collection `json:"collections"`
+	}{SpecRaw: specRaw, Flows: flows, Templates: templates, Scripts: scripts, Collections: collections}
+	data, err := json.Marshal(payload)
+	if err != nil {
+		return "", err
+	}
+	sum := sha256.Sum256(data)
+	return hex.EncodeToString(sum[:]), nil
+}
+
+func (s *FileStore) referencedScripts(flows []domain.Flow) ([]domain.Script, error) {
+	ids := map[string]struct{}{}
+	for _, flow := range flows {
+		for _, node := range flow.Nodes {
+			if node.Type == domain.NodeTypeStarlark && strings.TrimSpace(node.Data.ScriptID) != "" {
+				ids[node.Data.ScriptID] = struct{}{}
+			}
+		}
+	}
+	scripts := make([]domain.Script, 0, len(ids))
+	for id := range ids {
+		script, err := s.GetScript(id)
+		if err != nil {
+			return nil, err
+		}
+		scripts = append(scripts, script)
+	}
+	sortScripts(scripts)
+	return scripts, nil
+}
+
+func sortFlows(flows []domain.Flow) {
+	sort.Slice(flows, func(i, j int) bool {
+		return flows[i].OperationID < flows[j].OperationID
+	})
+}
+
+func sortTemplates(templates []domain.Template) {
+	sort.Slice(templates, func(i, j int) bool {
+		return templates[i].ID < templates[j].ID
+	})
+}
+
+func sortScripts(scripts []domain.Script) {
+	sort.Slice(scripts, func(i, j int) bool {
+		return scripts[i].ID < scripts[j].ID
+	})
+}
+
+func sortCollections(collections []domain.Collection) {
+	sort.Slice(collections, func(i, j int) bool {
+		return collections[i].ID < collections[j].ID
+	})
+}
+
+func writeJSONAtomic(path string, v any) error {
+	dir := filepath.Dir(path)
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return err
+	}
+	data, err := json.MarshalIndent(v, "", "  ")
+	if err != nil {
+		return err
+	}
+	tmp, err := os.CreateTemp(dir, ".tmp-*.json")
+	if err != nil {
+		return err
+	}
+	tmpPath := tmp.Name()
+	if _, err := tmp.Write(data); err != nil {
+		_ = tmp.Close()
+		_ = os.Remove(tmpPath)
+		return err
+	}
+	if err := tmp.Close(); err != nil {
+		_ = os.Remove(tmpPath)
+		return err
+	}
+	if err := os.Chmod(tmpPath, 0o644); err != nil {
+		_ = os.Remove(tmpPath)
+		return err
+	}
+	return os.Rename(tmpPath, path)
+}
+
+func (s *FileStore) migrateSpecDraftLayout() error {
+	specsDir := filepath.Join(s.dir, "specs")
+	entries, err := os.ReadDir(specsDir)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil
+		}
+		return err
+	}
+	for _, entry := range entries {
+		if !entry.IsDir() {
+			continue
+		}
+		specID := entry.Name()
+		if err := os.MkdirAll(s.draftDir(specID), 0o755); err != nil {
+			return err
+		}
+		moves := map[string]string{
+			filepath.Join(s.specDir(specID), "spec.raw"):    s.draftSpecFilePath(specID),
+			filepath.Join(s.specDir(specID), "flows"):       s.draftFlowsDir(specID),
+			filepath.Join(s.specDir(specID), "templates"):   s.draftTemplatesDir(specID),
+			filepath.Join(s.specDir(specID), "collections"): s.draftCollectionsDir(specID),
+		}
+		for oldPath, newPath := range moves {
+			if err := moveIfExists(oldPath, newPath); err != nil {
+				return err
+			}
+		}
+		for _, dir := range []string{s.draftFlowsDir(specID), s.draftTemplatesDir(specID), s.draftCollectionsDir(specID), s.liveCollectionsDir(specID), s.releasesDir(specID)} {
+			if err := os.MkdirAll(dir, 0o755); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
+func moveIfExists(oldPath, newPath string) error {
+	if _, err := os.Stat(oldPath); err != nil {
+		if os.IsNotExist(err) {
+			return nil
+		}
+		return err
+	}
+	if _, err := os.Stat(newPath); err == nil {
+		return nil
+	} else if !os.IsNotExist(err) {
+		return err
+	}
+	if err := os.MkdirAll(filepath.Dir(newPath), 0o755); err != nil {
+		return err
+	}
+	return os.Rename(oldPath, newPath)
+}
+
+func (s *FileStore) migrateGlobalCollections() error {
+	legacyDir := filepath.Join(s.dir, "collections")
+	entries, err := os.ReadDir(legacyDir)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil
+		}
+		return err
+	}
+
+	references, err := s.collectionReferences()
+	if err != nil {
+		return err
+	}
+	backupDir := filepath.Join(s.dir, "legacy-collections-migrated")
+	for _, entry := range entries {
+		if !entry.IsDir() {
+			continue
+		}
+		collectionID := entry.Name()
+		specIDs := references[collectionID]
+		if len(specIDs) == 0 {
+			continue
+		}
+		var collection domain.Collection
+		sourceDir := filepath.Join(legacyDir, collectionID)
+		if err := readJSON(filepath.Join(sourceDir, "meta.json"), &collection); err != nil {
+			return err
+		}
+		for specID := range specIDs {
+			if err := s.SaveCollection(specID, collection); err != nil {
+				return err
+			}
+			if err := copyDir(filepath.Join(sourceDir, "documents"), filepath.Join(s.liveCollectionsDir(specID), collectionID, "documents")); err != nil {
+				return err
+			}
+		}
+		if err := os.MkdirAll(backupDir, 0o755); err != nil {
+			return err
+		}
+		if err := os.Rename(sourceDir, filepath.Join(backupDir, collectionID)); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (s *FileStore) collectionReferences() (map[string]map[string]bool, error) {
+	references := map[string]map[string]bool{}
+	specs, err := s.ListSpecMeta()
+	if err != nil {
+		return nil, err
+	}
+	for _, spec := range specs {
+		flows, err := s.ListFlows(spec.ID)
+		if err != nil {
+			return nil, err
+		}
+		for _, flow := range flows {
+			for _, node := range flow.Nodes {
+				if node.Type != domain.NodeTypeDataMapper || node.Data.CollectionID == "" {
+					continue
+				}
+				if references[node.Data.CollectionID] == nil {
+					references[node.Data.CollectionID] = map[string]bool{}
+				}
+				references[node.Data.CollectionID][spec.ID] = true
+			}
+		}
+	}
+	return references, nil
+}
+
+func copyDir(src, dst string) error {
+	entries, err := os.ReadDir(src)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil
+		}
+		return err
+	}
+	if err := os.MkdirAll(dst, 0o755); err != nil {
+		return err
+	}
+	for _, entry := range entries {
+		srcPath := filepath.Join(src, entry.Name())
+		dstPath := filepath.Join(dst, entry.Name())
+		if entry.IsDir() {
+			if err := copyDir(srcPath, dstPath); err != nil {
+				return err
+			}
+			continue
+		}
+		data, err := os.ReadFile(srcPath)
+		if err != nil {
+			return err
+		}
+		if err := os.WriteFile(dstPath, data, 0o644); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (s *FileStore) ensureInitialPublishedReleases() error {
+	specs, err := s.ListSpecMeta()
+	if err != nil {
+		return err
+	}
+	for _, meta := range specs {
+		if meta.LatestVersion != 0 {
+			continue
+		}
+		bundle, err := s.CreateRelease(meta.ID, "Initial release")
+		if err != nil {
+			if err == ErrNotFound {
+				continue
+			}
+			return err
+		}
+		if err := s.SetPublishedVersion(meta.ID, bundle.Version); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // migrateGlobalTemplates copies templates from the pre-scope global directory

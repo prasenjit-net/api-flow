@@ -17,7 +17,7 @@ function useIsDark() {
   return isDark
 }
 
-function DocumentEditor({ collectionId, editing, onClose }: { collectionId: string; editing: CollectionDocument | null; onClose: () => void }) {
+function DocumentEditor({ specId, collectionId, editing, onClose }: { specId: string; collectionId: string; editing: CollectionDocument | null; onClose: () => void }) {
   const qc = useQueryClient()
   const isDark = useIsDark()
   const [source, setSource] = useState(editing ? JSON.stringify(editing.data, null, 2) : '{\n  \n}')
@@ -32,11 +32,11 @@ function DocumentEditor({ collectionId, editing, onClose }: { collectionId: stri
         throw new Error('Document body must be valid JSON')
       }
       return editing
-        ? documentsApi.update(collectionId, editing.id, data)
-        : documentsApi.create(collectionId, data)
+        ? documentsApi.update(specId, collectionId, editing.id, data)
+        : documentsApi.create(specId, collectionId, data)
     },
     onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ['documents', collectionId] })
+      qc.invalidateQueries({ queryKey: ['documents', specId, collectionId] })
       onClose()
     },
     onError: (mutationError: Error) => setError(mutationError.message),
@@ -101,12 +101,12 @@ function DocumentEditor({ collectionId, editing, onClose }: { collectionId: stri
 }
 
 export function DocumentEditorPage() {
-  const { collectionId, documentId } = useParams<{ collectionId: string; documentId?: string }>()
+  const { specId, collectionId, documentId } = useParams<{ specId: string; collectionId: string; documentId?: string }>()
   const navigate = useNavigate()
   const { data: document, isLoading, error } = useQuery({
-    queryKey: ['documents', collectionId, documentId],
-    queryFn: () => documentsApi.get(collectionId!, documentId!),
-    enabled: !!collectionId && !!documentId,
+    queryKey: ['documents', specId, collectionId, documentId],
+    queryFn: () => documentsApi.get(specId!, collectionId!, documentId!),
+    enabled: !!specId && !!collectionId && !!documentId,
   })
 
   if (documentId && isLoading) return <div className="flex h-40 items-center justify-center text-sm text-slate-400">Loading…</div>
@@ -114,36 +114,37 @@ export function DocumentEditorPage() {
 
   return (
     <DocumentEditor
+      specId={specId!}
       collectionId={collectionId!}
       editing={documentId ? document! : null}
-      onClose={() => navigate(`/collections/${collectionId}/documents`)}
+      onClose={() => navigate(`/specifications/${specId}/collections/${collectionId}/documents`)}
     />
   )
 }
 
 export default function CollectionDocumentsPage() {
-  const { collectionId } = useParams<{ collectionId: string }>()
+  const { specId, collectionId } = useParams<{ specId: string; collectionId: string }>()
   const qc = useQueryClient()
   const navigate = useNavigate()
   const [deleteError, setDeleteError] = useState('')
 
   const { data: collection } = useQuery({
-    queryKey: ['collections', collectionId],
-    queryFn: () => collectionsApi.get(collectionId!),
-    enabled: !!collectionId,
+    queryKey: ['collections', specId, collectionId],
+    queryFn: () => collectionsApi.get(specId!, collectionId!),
+    enabled: !!specId && !!collectionId,
   })
 
   const { data: documents = [], isLoading } = useQuery({
-    queryKey: ['documents', collectionId],
-    queryFn: () => documentsApi.list(collectionId!),
-    enabled: !!collectionId,
+    queryKey: ['documents', specId, collectionId],
+    queryFn: () => documentsApi.list(specId!, collectionId!),
+    enabled: !!specId && !!collectionId,
   })
 
   const deleteMutation = useMutation({
-    mutationFn: (documentId: string) => documentsApi.delete(collectionId!, documentId),
+    mutationFn: (documentId: string) => documentsApi.delete(specId!, collectionId!, documentId),
     onSuccess: () => {
       setDeleteError('')
-      qc.invalidateQueries({ queryKey: ['documents', collectionId] })
+      qc.invalidateQueries({ queryKey: ['documents', specId, collectionId] })
     },
     onError: (error: Error) => setDeleteError(error.message),
   })
@@ -151,7 +152,7 @@ export default function CollectionDocumentsPage() {
   return (
     <div className="flex h-full flex-col">
       <div className="flex min-h-14 shrink-0 flex-col gap-2 border-b border-slate-200 px-6 py-3 dark:border-slate-800">
-        <Link to="/collections" className="inline-flex w-fit items-center gap-1.5 text-xs font-medium text-slate-500 hover:text-slate-900 dark:text-slate-400 dark:hover:text-slate-100">
+        <Link to={`/specifications/${specId}/collections`} className="inline-flex w-fit items-center gap-1.5 text-xs font-medium text-slate-500 hover:text-slate-900 dark:text-slate-400 dark:hover:text-slate-100">
           <ChevronLeft className="h-3.5 w-3.5" />
           Back to collections
         </Link>
@@ -161,7 +162,7 @@ export default function CollectionDocumentsPage() {
             <span className="text-sm font-semibold text-slate-800 dark:text-slate-100">{collection?.name ?? 'Documents'}</span>
             {!isLoading && <span className="rounded bg-slate-100 px-2 py-0.5 text-xs text-slate-500 dark:bg-slate-800 dark:text-slate-400">{documents.length}</span>}
           </div>
-          <button type="button" onClick={() => navigate(`/collections/${collectionId}/documents/new`)} className="flex items-center gap-1.5 rounded bg-blue-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-blue-700">
+          <button type="button" onClick={() => navigate(`/specifications/${specId}/collections/${collectionId}/documents/new`)} className="flex items-center gap-1.5 rounded bg-blue-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-blue-700">
             <Plus className="h-3.5 w-3.5" /> New Document
           </button>
         </div>
@@ -176,7 +177,7 @@ export default function CollectionDocumentsPage() {
           <div className="flex h-60 flex-col items-center justify-center gap-3">
             <FileJson className="h-8 w-8 text-slate-300 dark:text-slate-600" />
             <p className="text-sm text-slate-500">No documents yet</p>
-            <button type="button" onClick={() => navigate(`/collections/${collectionId}/documents/new`)} className="text-sm text-blue-600 hover:underline dark:text-blue-400">Create your first document</button>
+            <button type="button" onClick={() => navigate(`/specifications/${specId}/collections/${collectionId}/documents/new`)} className="text-sm text-blue-600 hover:underline dark:text-blue-400">Create your first document</button>
           </div>
         ) : (
           <div className="divide-y divide-slate-100 dark:divide-slate-800/60">
@@ -184,7 +185,7 @@ export default function CollectionDocumentsPage() {
               <div key={document.id} className="flex items-start justify-between gap-4 px-6 py-3 hover:bg-slate-50 dark:hover:bg-slate-900/50">
                 <button
                   type="button"
-                  onClick={() => navigate(`/collections/${collectionId}/documents/${document.id}/edit`)}
+                  onClick={() => navigate(`/specifications/${specId}/collections/${collectionId}/documents/${document.id}/edit`)}
                   className="min-w-0 flex-1 text-left"
                 >
                   <div className="font-mono text-xs text-slate-400">{document.id}</div>
@@ -194,7 +195,7 @@ export default function CollectionDocumentsPage() {
                   <div className="mt-1 text-[11px] text-slate-400">Updated {new Date(document.updatedAt).toLocaleString()}</div>
                 </button>
                 <div className="flex shrink-0 items-center gap-1">
-                  <button type="button" onClick={() => navigate(`/collections/${collectionId}/documents/${document.id}/edit`)} className="rounded p-1.5 text-slate-400 hover:bg-slate-100 hover:text-slate-600 dark:hover:bg-slate-800">
+                  <button type="button" onClick={() => navigate(`/specifications/${specId}/collections/${collectionId}/documents/${document.id}/edit`)} className="rounded p-1.5 text-slate-400 hover:bg-slate-100 hover:text-slate-600 dark:hover:bg-slate-800">
                     <Pencil className="h-3.5 w-3.5" />
                   </button>
                   <button

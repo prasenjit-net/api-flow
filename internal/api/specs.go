@@ -20,6 +20,12 @@ import (
 type specDetailResponse struct {
 	domain.SpecMeta
 	Operations []domain.Operation `json:"operations"`
+	DraftDirty bool               `json:"draftDirty"`
+}
+
+type specListResponse struct {
+	domain.SpecMeta
+	DraftDirty bool `json:"draftDirty"`
 }
 
 var operationMethodOrder = map[string]int{
@@ -38,10 +44,16 @@ func (h *Handler) ListSpecs(w http.ResponseWriter, r *http.Request) {
 		respondError(w, r, http.StatusInternalServerError, err.Error())
 		return
 	}
-	if metas == nil {
-		metas = []domain.SpecMeta{}
+	responses := make([]specListResponse, 0, len(metas))
+	for _, meta := range metas {
+		dirty, err := h.draftDirty(meta)
+		if err != nil {
+			respondError(w, r, http.StatusInternalServerError, err.Error())
+			return
+		}
+		responses = append(responses, specListResponse{SpecMeta: meta, DraftDirty: dirty})
 	}
-	respondJSON(w, http.StatusOK, metas)
+	respondJSON(w, http.StatusOK, responses)
 }
 
 func (h *Handler) UploadSpec(w http.ResponseWriter, r *http.Request) {
@@ -105,7 +117,21 @@ func (h *Handler) UploadSpec(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	h.registry.Register(meta, doc)
+	bundle, err := h.store.CreateRelease(id, "Initial release")
+	if err != nil {
+		_ = h.store.DeleteSpec(id)
+		respondError(w, r, http.StatusInternalServerError, err.Error())
+		return
+	}
+	if err := h.store.SetPublishedVersion(id, bundle.Version); err != nil {
+		_ = h.store.DeleteSpec(id)
+		respondError(w, r, http.StatusInternalServerError, err.Error())
+		return
+	}
+	meta, _ = h.store.GetSpecMeta(id)
+	if h.registry != nil {
+		h.registry.Register(meta, bundle)
+	}
 
 	respondJSON(w, http.StatusCreated, meta)
 }
@@ -128,7 +154,12 @@ func (h *Handler) GetSpec(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	respondJSON(w, http.StatusOK, specDetailResponse{SpecMeta: meta, Operations: ops})
+	dirty, err := h.draftDirty(meta)
+	if err != nil {
+		respondError(w, r, http.StatusInternalServerError, err.Error())
+		return
+	}
+	respondJSON(w, http.StatusOK, specDetailResponse{SpecMeta: meta, Operations: ops, DraftDirty: dirty})
 }
 
 func (h *Handler) DeleteSpec(w http.ResponseWriter, r *http.Request) {
@@ -138,7 +169,9 @@ func (h *Handler) DeleteSpec(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	h.registry.Unregister(id)
+	if h.registry != nil {
+		h.registry.Unregister(id)
+	}
 
 	if err := h.store.DeleteSpec(id); err != nil {
 		respondError(w, r, http.StatusInternalServerError, err.Error())
@@ -236,4 +269,22 @@ func (h *Handler) loadSpecDocument(specID string) (*openapi3.T, error) {
 		return nil, err
 	}
 	return doc, nil
+}
+
+func (h *Handler) draftDirty(meta domain.SpecMeta) (bool, error) {
+	if meta.LatestVersion == 0 {
+		return true, nil
+	}
+	hash, err := h.store.DraftContentHash(meta.ID)
+	if err != nil {
+		return false, err
+	}
+	bundle, err := h.store.GetRelease(meta.ID, meta.LatestVersion)
+	if err == store.ErrNotFound {
+		return true, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	return hash != bundle.ContentHash, nil
 }

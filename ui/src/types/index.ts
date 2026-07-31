@@ -4,6 +4,9 @@ export interface SpecMeta {
   contextPath: string
   uploadedAt: string
   tracingEnabled: boolean
+  publishedVersion: number
+  latestVersion: number
+  draftDirty: boolean
 }
 
 export interface Operation {
@@ -17,6 +20,15 @@ export interface Operation {
 
 export interface SpecDetail extends SpecMeta {
   operations: Operation[]
+}
+
+export interface ReleaseBundle {
+  specId: string
+  version: number
+  notes: string
+  createdAt: string
+  contentHash: string
+  published: boolean
 }
 
 export interface Template {
@@ -202,6 +214,7 @@ export interface TraceSummary {
   id: string
   specId: string
   operationId: string
+  releaseVersion?: number
   method: string
   path: string
   startedAt: string

@@ -1,4 +1,4 @@
-import type { Collection, CollectionDocument, Flow, FlowValidationError, MetaResponse, Script, SpecDetail, SpecMeta, Template, TemplateExample, Trace, TraceSummary } from '../types'
+import type { Collection, CollectionDocument, Flow, FlowValidationError, MetaResponse, ReleaseBundle, Script, SpecDetail, SpecMeta, Template, TemplateExample, Trace, TraceSummary } from '../types'
 
 const BASE = import.meta.env.VITE_API_BASE || '/_api'
 const DEFAULT_REQUEST_TIMEOUT_MS = 30000
@@ -112,6 +112,19 @@ export const specsApi = {
     jsonRequest<SpecMeta>(`/specs/${id}/tracing`, 'PATCH', { enabled }),
 }
 
+export const releasesApi = {
+  list: (specId: string) =>
+    request<ReleaseBundle[]>(`/specs/${specId}/releases`),
+  create: (specId: string, notes: string) =>
+    jsonRequest<ReleaseBundle>(`/specs/${specId}/releases`, 'POST', { notes }),
+  publish: (specId: string, version: number) =>
+    jsonRequest<SpecMeta>(`/specs/${specId}/releases/${version}/publish`, 'POST', {}),
+  unpublish: (specId: string) =>
+    jsonRequest<SpecMeta>(`/specs/${specId}/unpublish`, 'POST', {}),
+  delete: (specId: string, version: number) =>
+    requestVoid(`/specs/${specId}/releases/${version}`, { method: 'DELETE' }),
+}
+
 export const flowsApi = {
   get: (specId: string, opId: string) =>
     request<Flow>(`/specs/${specId}/flows/${opId}`),
@@ -146,27 +159,27 @@ export const scriptsApi = {
 }
 
 export const collectionsApi = {
-  list: () => request<Collection[]>('/collections'),
-  get: (id: string) => request<Collection>(`/collections/${id}`),
-  create: (c: Pick<Collection, 'name' | 'description'>) =>
-    jsonRequest<Collection>('/collections', 'POST', c),
-  update: (id: string, c: Pick<Collection, 'name' | 'description'>) =>
-    jsonRequest<Collection>(`/collections/${id}`, 'PUT', c),
-  delete: (id: string) =>
-    requestVoid(`/collections/${id}`, { method: 'DELETE' }),
+  list: (specId: string) => request<Collection[]>(`/specs/${specId}/collections`),
+  get: (specId: string, id: string) => request<Collection>(`/specs/${specId}/collections/${id}`),
+  create: (specId: string, c: Pick<Collection, 'name' | 'description'>) =>
+    jsonRequest<Collection>(`/specs/${specId}/collections`, 'POST', c),
+  update: (specId: string, id: string, c: Pick<Collection, 'name' | 'description'>) =>
+    jsonRequest<Collection>(`/specs/${specId}/collections/${id}`, 'PUT', c),
+  delete: (specId: string, id: string) =>
+    requestVoid(`/specs/${specId}/collections/${id}`, { method: 'DELETE' }),
 }
 
 export const documentsApi = {
-  list: (collectionId: string) =>
-    request<CollectionDocument[]>(`/collections/${collectionId}/documents`),
-  get: (collectionId: string, id: string) =>
-    request<CollectionDocument>(`/collections/${collectionId}/documents/${id}`),
-  create: (collectionId: string, data: Record<string, unknown>) =>
-    jsonRequest<CollectionDocument>(`/collections/${collectionId}/documents`, 'POST', data),
-  update: (collectionId: string, id: string, data: Record<string, unknown>) =>
-    jsonRequest<CollectionDocument>(`/collections/${collectionId}/documents/${id}`, 'PUT', data),
-  delete: (collectionId: string, id: string) =>
-    requestVoid(`/collections/${collectionId}/documents/${id}`, { method: 'DELETE' }),
+  list: (specId: string, collectionId: string) =>
+    request<CollectionDocument[]>(`/specs/${specId}/collections/${collectionId}/documents`),
+  get: (specId: string, collectionId: string, id: string) =>
+    request<CollectionDocument>(`/specs/${specId}/collections/${collectionId}/documents/${id}`),
+  create: (specId: string, collectionId: string, data: Record<string, unknown>) =>
+    jsonRequest<CollectionDocument>(`/specs/${specId}/collections/${collectionId}/documents`, 'POST', data),
+  update: (specId: string, collectionId: string, id: string, data: Record<string, unknown>) =>
+    jsonRequest<CollectionDocument>(`/specs/${specId}/collections/${collectionId}/documents/${id}`, 'PUT', data),
+  delete: (specId: string, collectionId: string, id: string) =>
+    requestVoid(`/specs/${specId}/collections/${collectionId}/documents/${id}`, { method: 'DELETE' }),
 }
 
 export const tracesApi = {

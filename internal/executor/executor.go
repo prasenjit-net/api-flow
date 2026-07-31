@@ -30,6 +30,14 @@ func New(s store.Store) *Executor {
 }
 
 func (e *Executor) Execute(w http.ResponseWriter, r *http.Request, flow domain.Flow, pathParams map[string]string) {
+	e.execute(w, r, nil, flow, pathParams)
+}
+
+func (e *Executor) ExecuteRelease(w http.ResponseWriter, r *http.Request, bundle domain.ReleaseBundle, flow domain.Flow, pathParams map[string]string) {
+	e.execute(w, r, &bundle, flow, pathParams)
+}
+
+func (e *Executor) execute(w http.ResponseWriter, r *http.Request, bundle *domain.ReleaseBundle, flow domain.Flow, pathParams map[string]string) {
 	flow = domain.NormalizeFlow(flow)
 
 	var responseRecorder *traceResponseWriter
@@ -49,7 +57,11 @@ func (e *Executor) Execute(w http.ResponseWriter, r *http.Request, flow domain.F
 	}
 	var recorder *traceRecorder
 	if tracingEnabled {
-		recorder = newTraceRecorder(flow, r, ctx)
+		releaseVersion := 0
+		if bundle != nil {
+			releaseVersion = bundle.Version
+		}
+		recorder = newTraceRecorder(flow, r, ctx, releaseVersion)
 		defer func() {
 			errText := traceErr
 			if errText == "" && responseRecorder != nil && responseRecorder.statusCode >= http.StatusBadRequest {
@@ -117,8 +129,8 @@ func (e *Executor) Execute(w http.ResponseWriter, r *http.Request, flow domain.F
 			contextNodes(ctx)[current.Data.Name] = nodeOutput
 		case domain.NodeTypeStarlark:
 			nodeInput = buildNodeInput(current, ctx)
-			script, err := e.store.GetScript(current.Data.ScriptID)
-			if err != nil {
+			script, found, err := e.resolveScript(bundle, current.Data.ScriptID)
+			if err != nil || !found {
 				nodeErr = fmt.Errorf("script %q not found", current.Data.ScriptID)
 				recorder.recordNode(current, nodeStartedAt, nodeInput, nil, nodeErr)
 				fail(http.StatusInternalServerError, nodeErr.Error())
@@ -137,7 +149,7 @@ func (e *Executor) Execute(w http.ResponseWriter, r *http.Request, flow domain.F
 			filters := resolveQueryFilters(current.Data.QueryMappings, ctx)
 			bodyValues := buildMappingValues(current.Data.BodyMappings, ctx)
 			nodeInput = map[string]any{"query": filterSummary(filters), "body": bodyValues}
-			output, err := e.executeDataMapper(current.Data.CollectionID, current.Data.Operation, filters, bodyValues)
+			output, err := e.executeDataMapper(flow.SpecID, bundle, current.Data.CollectionID, current.Data.Operation, filters, bodyValues)
 			if err != nil {
 				nodeErr = fmt.Errorf("data mapper node %q failed: %v", current.Data.Name, err)
 				recorder.recordNode(current, nodeStartedAt, nodeInput, nil, nodeErr)
@@ -148,7 +160,7 @@ func (e *Executor) Execute(w http.ResponseWriter, r *http.Request, flow domain.F
 			contextNodes(ctx)[current.Data.Name] = nodeOutput
 		case domain.NodeTypeTemplate:
 			nodeInput = buildTemplateContext(current, ctx)
-			candidate, output, err := e.executeTemplate(flow.SpecID, flow.OperationID, current, nodeInput)
+			candidate, output, err := e.executeTemplate(bundle, flow.SpecID, flow.OperationID, current, nodeInput)
 			if err != nil {
 				nodeErr = err
 				recorder.recordNode(current, nodeStartedAt, nodeInput, nil, nodeErr)
@@ -160,7 +172,7 @@ func (e *Executor) Execute(w http.ResponseWriter, r *http.Request, flow domain.F
 			contextNodes(ctx)[current.Data.Name] = nodeOutput
 		case domain.NodeTypeEnd:
 			if response == nil {
-				fallback, output, found, err := e.exampleResponse(flow, ctx)
+				fallback, output, found, err := e.exampleResponse(bundle, flow, ctx)
 				if err != nil {
 					nodeErr = err
 					recorder.recordNode(current, nodeStartedAt, nodeInput, nil, nodeErr)
@@ -209,9 +221,9 @@ type responseCandidate struct {
 	Body       string
 }
 
-func (e *Executor) executeTemplate(specID, operationID string, node domain.Node, input map[string]any) (*responseCandidate, map[string]any, error) {
-	t, err := e.store.GetTemplate(specID, node.Data.TemplateID)
-	if err != nil {
+func (e *Executor) executeTemplate(bundle *domain.ReleaseBundle, specID, operationID string, node domain.Node, input map[string]any) (*responseCandidate, map[string]any, error) {
+	t, found, err := e.resolveTemplate(bundle, specID, node.Data.TemplateID)
+	if err != nil || !found {
 		return nil, nil, fmt.Errorf("template %q not found", node.Data.TemplateID)
 	}
 	if t.OperationID != "" && t.OperationID != operationID {
@@ -244,13 +256,60 @@ func (e *Executor) executeTemplate(specID, operationID string, node domain.Node,
 	return candidate, output, nil
 }
 
-func (e *Executor) exampleResponse(flow domain.Flow, context map[string]any) (*responseCandidate, map[string]any, bool, error) {
-	data, err := e.store.GetSpecFile(flow.SpecID)
+func (e *Executor) resolveTemplate(bundle *domain.ReleaseBundle, specID, templateID string) (domain.Template, bool, error) {
+	if bundle != nil {
+		for _, template := range bundle.Templates {
+			if template.ID == templateID {
+				return template, true, nil
+			}
+		}
+		return domain.Template{}, false, nil
+	}
+	template, err := e.store.GetTemplate(specID, templateID)
 	if err == store.ErrNotFound {
-		return nil, nil, false, nil
+		return domain.Template{}, false, nil
 	}
 	if err != nil {
-		return nil, nil, false, err
+		return domain.Template{}, false, err
+	}
+	return template, true, nil
+}
+
+func (e *Executor) resolveScript(bundle *domain.ReleaseBundle, scriptID string) (domain.Script, bool, error) {
+	if bundle != nil {
+		for _, script := range bundle.Scripts {
+			if script.ID == scriptID {
+				return script, true, nil
+			}
+		}
+		return domain.Script{}, false, nil
+	}
+	script, err := e.store.GetScript(scriptID)
+	if err == store.ErrNotFound {
+		return domain.Script{}, false, nil
+	}
+	if err != nil {
+		return domain.Script{}, false, err
+	}
+	return script, true, nil
+}
+
+func (e *Executor) exampleResponse(bundle *domain.ReleaseBundle, flow domain.Flow, context map[string]any) (*responseCandidate, map[string]any, bool, error) {
+	var data []byte
+	if bundle != nil {
+		data = bundle.SpecRaw
+	} else {
+		var err error
+		data, err = e.store.GetSpecFile(flow.SpecID)
+		if err == store.ErrNotFound {
+			return nil, nil, false, nil
+		}
+		if err != nil {
+			return nil, nil, false, err
+		}
+	}
+	if len(data) == 0 {
+		return nil, nil, false, nil
 	}
 	doc, err := openapi3.NewLoader().LoadFromData(data)
 	if err != nil {

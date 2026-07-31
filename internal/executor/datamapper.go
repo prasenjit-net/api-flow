@@ -13,25 +13,30 @@ import (
 // executeDataMapper performs the requested collection operation. Query filters
 // are AND-combined; update/upsert/delete act on the first matching document,
 // findMany is the only operation that returns more than one.
-func (e *Executor) executeDataMapper(collectionID, operation string, filters []resolvedFilter, body map[string]any) (any, error) {
-	if _, err := e.store.GetCollection(collectionID); err != nil {
-		if err == store.ErrNotFound {
-			return nil, fmt.Errorf("collection %q not found", collectionID)
+func (e *Executor) executeDataMapper(specID string, bundle *domain.ReleaseBundle, collectionID, operation string, filters []resolvedFilter, body map[string]any) (any, error) {
+	if !e.collectionExists(specID, bundle, collectionID) {
+		return nil, fmt.Errorf("collection %q not found", collectionID)
+	}
+	if bundle == nil {
+		if _, err := e.store.GetCollection(specID, collectionID); err != nil {
+			if err == store.ErrNotFound {
+				return nil, fmt.Errorf("collection %q not found", collectionID)
+			}
+			return nil, err
 		}
-		return nil, err
 	}
 
 	switch operation {
 	case "insert":
 		now := time.Now().UTC()
 		doc := domain.Document{ID: uuid.New().String(), CollectionID: collectionID, Data: body, CreatedAt: now, UpdatedAt: now}
-		if err := e.store.SaveDocument(collectionID, doc); err != nil {
+		if err := e.store.SaveDocument(specID, collectionID, doc); err != nil {
 			return nil, err
 		}
 		return documentOutput(doc), nil
 
 	case "findOne":
-		doc, found, err := e.findFirstDocument(collectionID, filters)
+		doc, found, err := e.findFirstDocument(specID, collectionID, filters)
 		if err != nil {
 			return nil, err
 		}
@@ -41,7 +46,7 @@ func (e *Executor) executeDataMapper(collectionID, operation string, filters []r
 		return documentOutput(doc), nil
 
 	case "findMany":
-		docs, err := e.store.ListDocuments(collectionID)
+		docs, err := e.store.ListDocuments(specID, collectionID)
 		if err != nil {
 			return nil, err
 		}
@@ -58,7 +63,7 @@ func (e *Executor) executeDataMapper(collectionID, operation string, filters []r
 		return results, nil
 
 	case "update":
-		doc, found, err := e.findFirstDocument(collectionID, filters)
+		doc, found, err := e.findFirstDocument(specID, collectionID, filters)
 		if err != nil {
 			return nil, err
 		}
@@ -67,13 +72,13 @@ func (e *Executor) executeDataMapper(collectionID, operation string, filters []r
 		}
 		mergeInto(doc.Data, body)
 		doc.UpdatedAt = time.Now().UTC()
-		if err := e.store.SaveDocument(collectionID, doc); err != nil {
+		if err := e.store.SaveDocument(specID, collectionID, doc); err != nil {
 			return nil, err
 		}
 		return documentOutput(doc), nil
 
 	case "upsert":
-		doc, found, err := e.findFirstDocument(collectionID, filters)
+		doc, found, err := e.findFirstDocument(specID, collectionID, filters)
 		if err != nil {
 			return nil, err
 		}
@@ -84,7 +89,7 @@ func (e *Executor) executeDataMapper(collectionID, operation string, filters []r
 		}
 		mergeInto(doc.Data, body)
 		doc.UpdatedAt = now
-		if err := e.store.SaveDocument(collectionID, doc); err != nil {
+		if err := e.store.SaveDocument(specID, collectionID, doc); err != nil {
 			return nil, err
 		}
 		output := documentOutput(doc)
@@ -92,14 +97,14 @@ func (e *Executor) executeDataMapper(collectionID, operation string, filters []r
 		return output, nil
 
 	case "delete":
-		doc, found, err := e.findFirstDocument(collectionID, filters)
+		doc, found, err := e.findFirstDocument(specID, collectionID, filters)
 		if err != nil {
 			return nil, err
 		}
 		if !found {
 			return map[string]any{"deleted": false}, nil
 		}
-		if err := e.store.DeleteDocument(collectionID, doc.ID); err != nil {
+		if err := e.store.DeleteDocument(specID, collectionID, doc.ID); err != nil {
 			return nil, err
 		}
 		return map[string]any{"deleted": true, "id": doc.ID}, nil
@@ -109,8 +114,23 @@ func (e *Executor) executeDataMapper(collectionID, operation string, filters []r
 	}
 }
 
-func (e *Executor) findFirstDocument(collectionID string, filters []resolvedFilter) (domain.Document, bool, error) {
-	docs, err := e.store.ListDocuments(collectionID)
+func (e *Executor) collectionExists(specID string, bundle *domain.ReleaseBundle, collectionID string) bool {
+	if bundle != nil {
+		for _, collection := range bundle.Collections {
+			if collection.ID == collectionID {
+				return true
+			}
+		}
+		return false
+	}
+	if _, err := e.store.GetCollection(specID, collectionID); err != nil {
+		return false
+	}
+	return true
+}
+
+func (e *Executor) findFirstDocument(specID, collectionID string, filters []resolvedFilter) (domain.Document, bool, error) {
+	docs, err := e.store.ListDocuments(specID, collectionID)
 	if err != nil {
 		return domain.Document{}, false, err
 	}

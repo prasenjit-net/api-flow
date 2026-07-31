@@ -22,14 +22,15 @@ type routeEntry struct {
 }
 
 type Registry struct {
-	mu     sync.RWMutex
-	routes []routeEntry
-	store  store.Store
-	exec   *executor.Executor
+	mu      sync.RWMutex
+	routes  []routeEntry
+	bundles map[string]*domain.ReleaseBundle
+	store   store.Store
+	exec    *executor.Executor
 }
 
 func New(s store.Store, exec *executor.Executor) *Registry {
-	return &Registry{store: s, exec: exec}
+	return &Registry{store: s, exec: exec, bundles: map[string]*domain.ReleaseBundle{}}
 }
 
 func (reg *Registry) LoadFromStore() {
@@ -38,22 +39,37 @@ func (reg *Registry) LoadFromStore() {
 		return
 	}
 	for _, meta := range metas {
-		data, err := reg.store.GetSpecFile(meta.ID)
+		if meta.PublishedVersion == 0 {
+			reg.Unregister(meta.ID)
+			continue
+		}
+		bundle, err := reg.store.GetRelease(meta.ID, meta.PublishedVersion)
 		if err != nil {
 			continue
 		}
-		doc, err := openapi3.NewLoader().LoadFromData(data)
-		if err != nil {
-			continue
-		}
-		reg.Register(meta, doc)
+		reg.Register(meta, bundle)
 	}
 }
 
-func (reg *Registry) Register(meta domain.SpecMeta, doc *openapi3.T) {
+func (reg *Registry) Register(meta domain.SpecMeta, bundle domain.ReleaseBundle) {
+	if meta.PublishedVersion == 0 || len(bundle.SpecRaw) == 0 {
+		reg.Unregister(meta.ID)
+		return
+	}
+	doc, err := openapi3.NewLoader().LoadFromData(bundle.SpecRaw)
+	if err != nil {
+		reg.Unregister(meta.ID)
+		return
+	}
+
 	reg.mu.Lock()
 	defer reg.mu.Unlock()
 	reg.removeSpec(meta.ID)
+	if reg.bundles == nil {
+		reg.bundles = map[string]*domain.ReleaseBundle{}
+	}
+	bundleCopy := bundle
+	reg.bundles[meta.ID] = &bundleCopy
 
 	base := strings.TrimRight(meta.ContextPath, "/")
 	for path, pathItem := range doc.Paths.Map() {
@@ -85,25 +101,39 @@ func (reg *Registry) removeSpec(specID string) {
 		}
 	}
 	reg.routes = filtered
+	delete(reg.bundles, specID)
 }
 
 func (reg *Registry) TryServe(w http.ResponseWriter, r *http.Request) bool {
 	reg.mu.RLock()
 	entry, pathParams := reg.match(r.Method, r.URL.Path)
+	var bundle *domain.ReleaseBundle
+	if entry != nil {
+		bundle = reg.bundles[entry.specID]
+	}
 	reg.mu.RUnlock()
 
-	if entry == nil {
+	if entry == nil || bundle == nil {
 		return false
 	}
 
-	flow, err := reg.store.GetFlow(entry.specID, entry.opID)
-	if err != nil {
+	flow, found := findBundleFlow(*bundle, entry.opID)
+	if !found {
 		w.WriteHeader(http.StatusNotImplemented)
 		return true
 	}
 
-	reg.exec.Execute(w, r, flow, pathParams)
+	reg.exec.ExecuteRelease(w, r, *bundle, flow, pathParams)
 	return true
+}
+
+func findBundleFlow(bundle domain.ReleaseBundle, opID string) (domain.Flow, bool) {
+	for _, flow := range bundle.Flows {
+		if flow.OperationID == opID {
+			return flow, true
+		}
+	}
+	return domain.Flow{}, false
 }
 
 func (reg *Registry) match(method, path string) (*routeEntry, map[string]string) {

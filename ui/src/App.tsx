@@ -21,6 +21,12 @@ function App() {
         <Route path="specifications" element={<SpecificationsPage />} />
         <Route path="specifications/:id" element={<SpecificationDetailPage />} />
         <Route path="specifications/:id/operations/:opId" element={<FlowEditorPage />} />
+        <Route path="specifications/:specId/collections" element={<CollectionsPage />} />
+        <Route path="specifications/:specId/collections/new" element={<CollectionEditorPage />} />
+        <Route path="specifications/:specId/collections/:collectionId/edit" element={<CollectionEditorPage />} />
+        <Route path="specifications/:specId/collections/:collectionId/documents" element={<CollectionDocumentsPage />} />
+        <Route path="specifications/:specId/collections/:collectionId/documents/new" element={<DocumentEditorPage />} />
+        <Route path="specifications/:specId/collections/:collectionId/documents/:documentId/edit" element={<DocumentEditorPage />} />
         <Route path="templates" element={<TemplatesIndexPage />} />
         <Route path="templates/:specId" element={<TemplatesPage />} />
         <Route path="templates/:specId/new" element={<TemplateEditorPage />} />
@@ -28,12 +34,7 @@ function App() {
         <Route path="scripts" element={<ScriptsPage />} />
         <Route path="scripts/new" element={<ScriptEditorPage />} />
         <Route path="scripts/:scriptId/edit" element={<ScriptEditorPage />} />
-        <Route path="collections" element={<CollectionsPage />} />
-        <Route path="collections/new" element={<CollectionEditorPage />} />
-        <Route path="collections/:collectionId/edit" element={<CollectionEditorPage />} />
-        <Route path="collections/:collectionId/documents" element={<CollectionDocumentsPage />} />
-        <Route path="collections/:collectionId/documents/new" element={<DocumentEditorPage />} />
-        <Route path="collections/:collectionId/documents/:documentId/edit" element={<DocumentEditorPage />} />
+        <Route path="collections" element={<Navigate to="/specifications" replace />} />
         <Route path="traces" element={<TracesPage />} />
         <Route path="traces/:traceId" element={<TraceDetailPage />} />
       </Route>

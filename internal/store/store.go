@@ -7,6 +7,7 @@ import (
 )
 
 var ErrNotFound = errors.New("not found")
+var ErrConflict = errors.New("conflict")
 
 type Store interface {
 	SaveSpecMeta(meta domain.SpecMeta) error
@@ -30,15 +31,22 @@ type Store interface {
 	ListScripts() ([]domain.Script, error)
 	DeleteScript(id string) error
 
-	SaveCollection(collection domain.Collection) error
-	GetCollection(id string) (domain.Collection, error)
-	ListCollections() ([]domain.Collection, error)
-	DeleteCollection(id string) error
+	SaveCollection(specID string, collection domain.Collection) error
+	GetCollection(specID, id string) (domain.Collection, error)
+	ListCollections(specID string) ([]domain.Collection, error)
+	DeleteCollection(specID, id string) error
 
-	SaveDocument(collectionID string, doc domain.Document) error
-	GetDocument(collectionID, id string) (domain.Document, error)
-	ListDocuments(collectionID string) ([]domain.Document, error)
-	DeleteDocument(collectionID, id string) error
+	SaveDocument(specID, collectionID string, doc domain.Document) error
+	GetDocument(specID, collectionID, id string) (domain.Document, error)
+	ListDocuments(specID, collectionID string) ([]domain.Document, error)
+	DeleteDocument(specID, collectionID, id string) error
+
+	CreateRelease(specID, notes string) (domain.ReleaseBundle, error)
+	ListReleases(specID string) ([]domain.ReleaseBundle, error)
+	GetRelease(specID string, version int) (domain.ReleaseBundle, error)
+	DeleteRelease(specID string, version int) error
+	SetPublishedVersion(specID string, version int) error
+	DraftContentHash(specID string) (string, error)
 
 	SaveTrace(trace domain.Trace) error
 	GetTrace(id string) (domain.Trace, error)

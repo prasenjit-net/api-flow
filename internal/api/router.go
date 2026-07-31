@@ -28,6 +28,11 @@ func NewRouter(cfg config.Config, logger *slog.Logger, build version.Info, s sto
 		r.Get("/{id}", h.GetSpec)
 		r.Delete("/{id}", h.DeleteSpec)
 		r.Patch("/{id}/tracing", h.UpdateSpecTracing)
+		r.Get("/{id}/releases", h.ListReleases)
+		r.Post("/{id}/releases", h.CreateRelease)
+		r.Post("/{id}/releases/{version}/publish", h.PublishRelease)
+		r.Post("/{id}/unpublish", h.UnpublishSpec)
+		r.Delete("/{id}/releases/{version}", h.DeleteRelease)
 		r.Get("/{id}/flows/{opId}", h.GetFlow)
 		r.Put("/{id}/flows/{opId}", h.SaveFlow)
 		r.Get("/{id}/templates", h.ListTemplates)
@@ -35,6 +40,16 @@ func NewRouter(cfg config.Config, logger *slog.Logger, build version.Info, s sto
 		r.Put("/{id}/templates/{templateId}", h.UpdateTemplate)
 		r.Delete("/{id}/templates/{templateId}", h.DeleteTemplate)
 		r.Get("/{id}/operations/{opId}/response-examples", h.ListResponseExamples)
+		r.Get("/{id}/collections", h.ListCollections)
+		r.Post("/{id}/collections", h.CreateCollection)
+		r.Get("/{id}/collections/{collectionId}", h.GetCollection)
+		r.Put("/{id}/collections/{collectionId}", h.UpdateCollection)
+		r.Delete("/{id}/collections/{collectionId}", h.DeleteCollection)
+		r.Get("/{id}/collections/{collectionId}/documents", h.ListDocuments)
+		r.Post("/{id}/collections/{collectionId}/documents", h.CreateDocument)
+		r.Get("/{id}/collections/{collectionId}/documents/{documentId}", h.GetDocument)
+		r.Put("/{id}/collections/{collectionId}/documents/{documentId}", h.UpdateDocument)
+		r.Delete("/{id}/collections/{collectionId}/documents/{documentId}", h.DeleteDocument)
 	})
 
 	r.Route("/scripts", func(r chi.Router) {
@@ -43,19 +58,6 @@ func NewRouter(cfg config.Config, logger *slog.Logger, build version.Info, s sto
 		r.Get("/{scriptId}", h.GetScript)
 		r.Put("/{scriptId}", h.UpdateScript)
 		r.Delete("/{scriptId}", h.DeleteScript)
-	})
-
-	r.Route("/collections", func(r chi.Router) {
-		r.Get("/", h.ListCollections)
-		r.Post("/", h.CreateCollection)
-		r.Get("/{collectionId}", h.GetCollection)
-		r.Put("/{collectionId}", h.UpdateCollection)
-		r.Delete("/{collectionId}", h.DeleteCollection)
-		r.Get("/{collectionId}/documents", h.ListDocuments)
-		r.Post("/{collectionId}/documents", h.CreateDocument)
-		r.Get("/{collectionId}/documents/{documentId}", h.GetDocument)
-		r.Put("/{collectionId}/documents/{documentId}", h.UpdateDocument)
-		r.Delete("/{collectionId}/documents/{documentId}", h.DeleteDocument)
 	})
 
 	r.Route("/traces", func(r chi.Router) {

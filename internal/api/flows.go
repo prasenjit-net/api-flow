@@ -61,6 +61,19 @@ func (h *Handler) SaveFlow(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 		}
+		if node.Type == domain.NodeTypeDataMapper && node.Data.CollectionID != "" {
+			if _, err := h.store.GetCollection(specID, node.Data.CollectionID); err == store.ErrNotFound {
+				validationErrors = append(validationErrors, domain.FlowValidationError{
+					Code:    "collection_not_found",
+					Message: "selected collection does not exist in this specification",
+					NodeID:  node.ID,
+					Field:   "data.collectionId",
+				})
+			} else if err != nil {
+				respondError(w, r, http.StatusInternalServerError, err.Error())
+				return
+			}
+		}
 		if node.Type != domain.NodeTypeTemplate || node.Data.TemplateID == "" {
 			continue
 		}

@@ -5,7 +5,7 @@ import { useNavigate, useParams } from 'react-router-dom'
 import { collectionsApi } from '../services/api'
 import type { Collection } from '../types'
 
-function CollectionEditor({ editing, onClose }: { editing: Collection | null; onClose: () => void }) {
+function CollectionEditor({ specId, editing, onClose }: { specId: string; editing: Collection | null; onClose: () => void }) {
   const qc = useQueryClient()
   const [name, setName] = useState(editing?.name ?? '')
   const [description, setDescription] = useState(editing?.description ?? '')
@@ -13,10 +13,10 @@ function CollectionEditor({ editing, onClose }: { editing: Collection | null; on
 
   const mutation = useMutation({
     mutationFn: () => editing
-      ? collectionsApi.update(editing.id, { name, description })
-      : collectionsApi.create({ name, description }),
+      ? collectionsApi.update(specId, editing.id, { name, description })
+      : collectionsApi.create(specId, { name, description }),
     onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ['collections'] })
+      qc.invalidateQueries({ queryKey: ['collections', specId] })
       onClose()
     },
     onError: (mutationError: Error) => setError(mutationError.message),
@@ -72,34 +72,36 @@ function CollectionEditor({ editing, onClose }: { editing: Collection | null; on
 }
 
 export function CollectionEditorPage() {
-  const { collectionId } = useParams<{ collectionId?: string }>()
+  const { specId, collectionId } = useParams<{ specId: string; collectionId?: string }>()
   const navigate = useNavigate()
   const { data: collection, isLoading, error } = useQuery({
-    queryKey: ['collections', collectionId],
-    queryFn: () => collectionsApi.get(collectionId!),
-    enabled: !!collectionId,
+    queryKey: ['collections', specId, collectionId],
+    queryFn: () => collectionsApi.get(specId!, collectionId!),
+    enabled: !!specId && !!collectionId,
   })
 
   if (collectionId && isLoading) return <div className="flex h-40 items-center justify-center text-sm text-slate-400">Loading…</div>
   if (collectionId && (error || !collection)) return <div className="flex h-40 items-center justify-center text-sm text-red-400">Failed to load collection.</div>
 
-  return <CollectionEditor editing={collectionId ? collection! : null} onClose={() => navigate('/collections')} />
+  return <CollectionEditor specId={specId!} editing={collectionId ? collection! : null} onClose={() => navigate(`/specifications/${specId}/collections`)} />
 }
 
 export default function CollectionsPage() {
   const qc = useQueryClient()
   const navigate = useNavigate()
+  const { specId } = useParams<{ specId: string }>()
   const [editing, setEditing] = useState<Collection | null | undefined>(undefined)
   const [deleteError, setDeleteError] = useState('')
   const { data: collections = [], isLoading } = useQuery({
-    queryKey: ['collections'],
-    queryFn: collectionsApi.list,
+    queryKey: ['collections', specId],
+    queryFn: () => collectionsApi.list(specId!),
+    enabled: !!specId,
   })
   const deleteMutation = useMutation({
-    mutationFn: collectionsApi.delete,
+    mutationFn: (collectionId: string) => collectionsApi.delete(specId!, collectionId),
     onSuccess: () => {
       setDeleteError('')
-      qc.invalidateQueries({ queryKey: ['collections'] })
+      qc.invalidateQueries({ queryKey: ['collections', specId] })
     },
     onError: (error: Error) => setDeleteError(error.message),
   })
@@ -140,11 +142,11 @@ export default function CollectionsPage() {
               <div className="divide-y divide-slate-100 dark:divide-slate-800/60">
                 {collections.map(collection => (
                   <div key={collection.id} className="grid grid-cols-[1fr_1fr_120px_auto] items-center gap-4 px-6 py-3 hover:bg-slate-50 dark:hover:bg-slate-900/50">
-                    <button type="button" onClick={() => navigate(`/collections/${collection.id}/documents`)} className="text-left text-sm font-medium text-slate-800 hover:text-blue-600 dark:text-slate-200 dark:hover:text-blue-400">{collection.name}</button>
+                    <button type="button" onClick={() => navigate(`/specifications/${specId}/collections/${collection.id}/documents`)} className="text-left text-sm font-medium text-slate-800 hover:text-blue-600 dark:text-slate-200 dark:hover:text-blue-400">{collection.name}</button>
                     <span className="truncate text-xs text-slate-500 dark:text-slate-400">{collection.description || '—'}</span>
                     <span className="text-xs text-slate-400">{new Date(collection.updatedAt).toLocaleDateString()}</span>
                     <div className="flex items-center gap-1">
-                      <button type="button" onClick={() => navigate(`/collections/${collection.id}/documents`)} className="rounded p-1.5 text-slate-400 hover:bg-slate-100 hover:text-slate-600 dark:hover:bg-slate-800" title="View documents">
+                      <button type="button" onClick={() => navigate(`/specifications/${specId}/collections/${collection.id}/documents`)} className="rounded p-1.5 text-slate-400 hover:bg-slate-100 hover:text-slate-600 dark:hover:bg-slate-800" title="View documents">
                         <FolderOpen className="h-3.5 w-3.5" />
                       </button>
                       <button type="button" onClick={() => setEditing(collection)} className="rounded p-1.5 text-slate-400 hover:bg-slate-100 hover:text-slate-600 dark:hover:bg-slate-800" title="Edit">
@@ -169,7 +171,7 @@ export default function CollectionsPage() {
         </div>
       </div>
 
-      {editing !== undefined && <CollectionEditor editing={editing} onClose={() => setEditing(undefined)} />}
+      {editing !== undefined && specId && <CollectionEditor specId={specId} editing={editing} onClose={() => setEditing(undefined)} />}
     </>
   )
 }
