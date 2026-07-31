@@ -17,7 +17,7 @@ import (
 func (h *Handler) ListCollections(w http.ResponseWriter, r *http.Request) {
 	collections, err := h.store.ListCollections()
 	if err != nil {
-		respondError(w, http.StatusInternalServerError, err.Error())
+		respondError(w, r, http.StatusInternalServerError, err.Error())
 		return
 	}
 	if collections == nil {
@@ -32,11 +32,11 @@ func (h *Handler) ListCollections(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) GetCollection(w http.ResponseWriter, r *http.Request) {
 	collection, err := h.store.GetCollection(chi.URLParam(r, "collectionId"))
 	if err == store.ErrNotFound {
-		respondError(w, http.StatusNotFound, "collection not found")
+		respondError(w, r, http.StatusNotFound, "collection not found")
 		return
 	}
 	if err != nil {
-		respondError(w, http.StatusInternalServerError, err.Error())
+		respondError(w, r, http.StatusInternalServerError, err.Error())
 		return
 	}
 	respondJSON(w, http.StatusOK, collection)
@@ -45,11 +45,11 @@ func (h *Handler) GetCollection(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) CreateCollection(w http.ResponseWriter, r *http.Request) {
 	var collection domain.Collection
 	if err := json.NewDecoder(r.Body).Decode(&collection); err != nil {
-		respondError(w, http.StatusBadRequest, "invalid JSON")
+		respondError(w, r, http.StatusBadRequest, "invalid JSON")
 		return
 	}
 	if strings.TrimSpace(collection.Name) == "" {
-		respondError(w, http.StatusUnprocessableEntity, "collection name is required")
+		respondError(w, r, http.StatusUnprocessableEntity, "collection name is required")
 		return
 	}
 	now := time.Now().UTC()
@@ -57,7 +57,7 @@ func (h *Handler) CreateCollection(w http.ResponseWriter, r *http.Request) {
 	collection.CreatedAt = now
 	collection.UpdatedAt = now
 	if err := h.store.SaveCollection(collection); err != nil {
-		respondError(w, http.StatusInternalServerError, err.Error())
+		respondError(w, r, http.StatusInternalServerError, err.Error())
 		return
 	}
 	respondJSON(w, http.StatusCreated, collection)
@@ -67,27 +67,27 @@ func (h *Handler) UpdateCollection(w http.ResponseWriter, r *http.Request) {
 	collectionID := chi.URLParam(r, "collectionId")
 	existing, err := h.store.GetCollection(collectionID)
 	if err == store.ErrNotFound {
-		respondError(w, http.StatusNotFound, "collection not found")
+		respondError(w, r, http.StatusNotFound, "collection not found")
 		return
 	}
 	if err != nil {
-		respondError(w, http.StatusInternalServerError, err.Error())
+		respondError(w, r, http.StatusInternalServerError, err.Error())
 		return
 	}
 	var collection domain.Collection
 	if err := json.NewDecoder(r.Body).Decode(&collection); err != nil {
-		respondError(w, http.StatusBadRequest, "invalid JSON")
+		respondError(w, r, http.StatusBadRequest, "invalid JSON")
 		return
 	}
 	if strings.TrimSpace(collection.Name) == "" {
-		respondError(w, http.StatusUnprocessableEntity, "collection name is required")
+		respondError(w, r, http.StatusUnprocessableEntity, "collection name is required")
 		return
 	}
 	collection.ID = existing.ID
 	collection.CreatedAt = existing.CreatedAt
 	collection.UpdatedAt = time.Now().UTC()
 	if err := h.store.SaveCollection(collection); err != nil {
-		respondError(w, http.StatusInternalServerError, err.Error())
+		respondError(w, r, http.StatusInternalServerError, err.Error())
 		return
 	}
 	respondJSON(w, http.StatusOK, collection)
@@ -96,22 +96,22 @@ func (h *Handler) UpdateCollection(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) DeleteCollection(w http.ResponseWriter, r *http.Request) {
 	collectionID := chi.URLParam(r, "collectionId")
 	if _, err := h.store.GetCollection(collectionID); err == store.ErrNotFound {
-		respondError(w, http.StatusNotFound, "collection not found")
+		respondError(w, r, http.StatusNotFound, "collection not found")
 		return
 	} else if err != nil {
-		respondError(w, http.StatusInternalServerError, err.Error())
+		respondError(w, r, http.StatusInternalServerError, err.Error())
 		return
 	}
 	specs, err := h.store.ListSpecMeta()
 	if err != nil {
-		respondError(w, http.StatusInternalServerError, err.Error())
+		respondError(w, r, http.StatusInternalServerError, err.Error())
 		return
 	}
 	var references []map[string]string
 	for _, spec := range specs {
 		flows, err := h.store.ListFlows(spec.ID)
 		if err != nil {
-			respondError(w, http.StatusInternalServerError, err.Error())
+			respondError(w, r, http.StatusInternalServerError, err.Error())
 			return
 		}
 		for _, flow := range flows {
@@ -127,14 +127,14 @@ func (h *Handler) DeleteCollection(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	if len(references) > 0 {
-		respondJSON(w, http.StatusConflict, map[string]any{
+		respondJSON(w, http.StatusConflict, withRequestID(r, map[string]any{
 			"error":      "collection is referenced by saved flows",
 			"references": references,
-		})
+		}))
 		return
 	}
 	if err := h.store.DeleteCollection(collectionID); err != nil {
-		respondError(w, http.StatusInternalServerError, err.Error())
+		respondError(w, r, http.StatusInternalServerError, err.Error())
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
@@ -143,15 +143,15 @@ func (h *Handler) DeleteCollection(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) ListDocuments(w http.ResponseWriter, r *http.Request) {
 	collectionID := chi.URLParam(r, "collectionId")
 	if _, err := h.store.GetCollection(collectionID); err == store.ErrNotFound {
-		respondError(w, http.StatusNotFound, "collection not found")
+		respondError(w, r, http.StatusNotFound, "collection not found")
 		return
 	} else if err != nil {
-		respondError(w, http.StatusInternalServerError, err.Error())
+		respondError(w, r, http.StatusInternalServerError, err.Error())
 		return
 	}
 	docs, err := h.store.ListDocuments(collectionID)
 	if err != nil {
-		respondError(w, http.StatusInternalServerError, err.Error())
+		respondError(w, r, http.StatusInternalServerError, err.Error())
 		return
 	}
 	if docs == nil {
@@ -167,11 +167,11 @@ func (h *Handler) GetDocument(w http.ResponseWriter, r *http.Request) {
 	collectionID := chi.URLParam(r, "collectionId")
 	doc, err := h.store.GetDocument(collectionID, chi.URLParam(r, "documentId"))
 	if err == store.ErrNotFound {
-		respondError(w, http.StatusNotFound, "document not found")
+		respondError(w, r, http.StatusNotFound, "document not found")
 		return
 	}
 	if err != nil {
-		respondError(w, http.StatusInternalServerError, err.Error())
+		respondError(w, r, http.StatusInternalServerError, err.Error())
 		return
 	}
 	respondJSON(w, http.StatusOK, doc)
@@ -180,21 +180,21 @@ func (h *Handler) GetDocument(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) CreateDocument(w http.ResponseWriter, r *http.Request) {
 	collectionID := chi.URLParam(r, "collectionId")
 	if _, err := h.store.GetCollection(collectionID); err == store.ErrNotFound {
-		respondError(w, http.StatusNotFound, "collection not found")
+		respondError(w, r, http.StatusNotFound, "collection not found")
 		return
 	} else if err != nil {
-		respondError(w, http.StatusInternalServerError, err.Error())
+		respondError(w, r, http.StatusInternalServerError, err.Error())
 		return
 	}
 	var data map[string]any
 	if err := json.NewDecoder(r.Body).Decode(&data); err != nil {
-		respondError(w, http.StatusBadRequest, "invalid JSON")
+		respondError(w, r, http.StatusBadRequest, "invalid JSON")
 		return
 	}
 	now := time.Now().UTC()
 	doc := domain.Document{ID: uuid.New().String(), CollectionID: collectionID, Data: data, CreatedAt: now, UpdatedAt: now}
 	if err := h.store.SaveDocument(collectionID, doc); err != nil {
-		respondError(w, http.StatusInternalServerError, err.Error())
+		respondError(w, r, http.StatusInternalServerError, err.Error())
 		return
 	}
 	respondJSON(w, http.StatusCreated, doc)
@@ -205,16 +205,16 @@ func (h *Handler) UpdateDocument(w http.ResponseWriter, r *http.Request) {
 	documentID := chi.URLParam(r, "documentId")
 	existing, err := h.store.GetDocument(collectionID, documentID)
 	if err == store.ErrNotFound {
-		respondError(w, http.StatusNotFound, "document not found")
+		respondError(w, r, http.StatusNotFound, "document not found")
 		return
 	}
 	if err != nil {
-		respondError(w, http.StatusInternalServerError, err.Error())
+		respondError(w, r, http.StatusInternalServerError, err.Error())
 		return
 	}
 	var data map[string]any
 	if err := json.NewDecoder(r.Body).Decode(&data); err != nil {
-		respondError(w, http.StatusBadRequest, "invalid JSON")
+		respondError(w, r, http.StatusBadRequest, "invalid JSON")
 		return
 	}
 	doc := domain.Document{
@@ -225,7 +225,7 @@ func (h *Handler) UpdateDocument(w http.ResponseWriter, r *http.Request) {
 		UpdatedAt:    time.Now().UTC(),
 	}
 	if err := h.store.SaveDocument(collectionID, doc); err != nil {
-		respondError(w, http.StatusInternalServerError, err.Error())
+		respondError(w, r, http.StatusInternalServerError, err.Error())
 		return
 	}
 	respondJSON(w, http.StatusOK, doc)
@@ -235,14 +235,14 @@ func (h *Handler) DeleteDocument(w http.ResponseWriter, r *http.Request) {
 	collectionID := chi.URLParam(r, "collectionId")
 	documentID := chi.URLParam(r, "documentId")
 	if _, err := h.store.GetDocument(collectionID, documentID); err == store.ErrNotFound {
-		respondError(w, http.StatusNotFound, "document not found")
+		respondError(w, r, http.StatusNotFound, "document not found")
 		return
 	} else if err != nil {
-		respondError(w, http.StatusInternalServerError, err.Error())
+		respondError(w, r, http.StatusInternalServerError, err.Error())
 		return
 	}
 	if err := h.store.DeleteDocument(collectionID, documentID); err != nil {
-		respondError(w, http.StatusInternalServerError, err.Error())
+		respondError(w, r, http.StatusInternalServerError, err.Error())
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)

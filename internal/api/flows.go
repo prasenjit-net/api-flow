@@ -26,7 +26,7 @@ func (h *Handler) GetFlow(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err != nil {
-		respondError(w, http.StatusInternalServerError, err.Error())
+		respondError(w, r, http.StatusInternalServerError, err.Error())
 		return
 	}
 	respondJSON(w, http.StatusOK, domain.NormalizeFlow(flow))
@@ -38,7 +38,7 @@ func (h *Handler) SaveFlow(w http.ResponseWriter, r *http.Request) {
 
 	var flow domain.Flow
 	if err := json.NewDecoder(r.Body).Decode(&flow); err != nil {
-		respondError(w, http.StatusBadRequest, "invalid JSON")
+		respondError(w, r, http.StatusBadRequest, "invalid JSON")
 		return
 	}
 
@@ -57,7 +57,7 @@ func (h *Handler) SaveFlow(w http.ResponseWriter, r *http.Request) {
 					Field:   "data.scriptId",
 				})
 			} else if err != nil {
-				respondError(w, http.StatusInternalServerError, err.Error())
+				respondError(w, r, http.StatusInternalServerError, err.Error())
 				return
 			}
 		}
@@ -73,7 +73,7 @@ func (h *Handler) SaveFlow(w http.ResponseWriter, r *http.Request) {
 				Field:   "data.templateId",
 			})
 		} else if err != nil {
-			respondError(w, http.StatusInternalServerError, err.Error())
+			respondError(w, r, http.StatusInternalServerError, err.Error())
 			return
 		} else if template.OperationID != "" && template.OperationID != opID {
 			validationErrors = append(validationErrors, domain.FlowValidationError{
@@ -85,15 +85,15 @@ func (h *Handler) SaveFlow(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	if len(validationErrors) > 0 {
-		respondJSON(w, http.StatusUnprocessableEntity, map[string]any{
+		respondJSON(w, http.StatusUnprocessableEntity, withRequestID(r, map[string]any{
 			"error":   "workflow validation failed",
 			"details": validationErrors,
-		})
+		}))
 		return
 	}
 
 	if err := h.store.SaveFlow(flow); err != nil {
-		respondError(w, http.StatusInternalServerError, err.Error())
+		respondError(w, r, http.StatusInternalServerError, err.Error())
 		return
 	}
 	respondJSON(w, http.StatusOK, flow)

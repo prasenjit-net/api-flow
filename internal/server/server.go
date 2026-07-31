@@ -42,6 +42,7 @@ func New(cfg config.Config, logger *slog.Logger, build version.Info, options Opt
 func (a *App) Handler() http.Handler {
 	r := chi.NewRouter()
 	r.Use(middleware.RequestID)
+	r.Use(requestIDHeader)
 	r.Use(middleware.RealIP)
 	r.Use(middleware.Recoverer)
 	r.Use(middleware.Heartbeat("/_health"))
@@ -54,9 +55,7 @@ func (a *App) Handler() http.Handler {
 	// files sit at the FS root, so we strip the /_ui prefix before serving.
 	if a.options.DevMode && strings.TrimSpace(a.cfg.UI.DevProxyURL) != "" {
 		proxy := newDevProxy(a.cfg.UI.DevProxyURL, a.logger)
-		r.Get("/_ui", func(w http.ResponseWriter, req *http.Request) {
-			http.Redirect(w, req, "/_ui/", http.StatusTemporaryRedirect)
-		})
+		r.Handle("/_ui", proxy)
 		r.Handle("/_ui/*", proxy)
 	} else {
 		distFS, err := fs.Sub(a.options.UIFS, "ui/dist")
@@ -69,9 +68,7 @@ func (a *App) Handler() http.Handler {
 		} else {
 			spaH = newSPAHandler(distFS)
 		}
-		r.Get("/_ui", func(w http.ResponseWriter, req *http.Request) {
-			http.Redirect(w, req, "/_ui/", http.StatusTemporaryRedirect)
-		})
+		r.Handle("/_ui", http.StripPrefix("/_ui", spaH))
 		r.Handle("/_ui/*", http.StripPrefix("/_ui", spaH))
 	}
 
@@ -170,4 +167,13 @@ func requestLogger(logger *slog.Logger) func(http.Handler) http.Handler {
 			)
 		})
 	}
+}
+
+func requestIDHeader(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if requestID := middleware.GetReqID(r.Context()); requestID != "" {
+			w.Header().Set("X-Request-ID", requestID)
+		}
+		next.ServeHTTP(w, r)
+	})
 }

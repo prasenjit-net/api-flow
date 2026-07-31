@@ -15,7 +15,7 @@ LD_FLAGS := -s -w \
 	-X github.com/prasenjit-net/api-flow/internal/version.Commit=$(COMMIT) \
 	-X github.com/prasenjit-net/api-flow/internal/version.BuildDate=$(BUILD_DATE)
 
-.PHONY: all build build-ui build-go run dev dev-ui dev-all test lint lint-ui fmt install-deps clean init help
+.PHONY: all build build-ui build-go run dev dev-ui dev-all test lint lint-ui verify fmt install-deps clean init help
 
 all: build
 
@@ -62,6 +62,9 @@ lint-ui:
 	@echo "> Running UI lint…"
 	cd $(UI_DIR) && npm run lint
 
+verify: test lint lint-ui build-ui
+	@echo "✓ Verification complete"
+
 fmt:
 	$(GO) fmt $(GO_PACKAGES)
 
@@ -92,4 +95,5 @@ help:
 	@echo "  test        Run Go tests"
 	@echo "  lint        Run go vet"
 	@echo "  lint-ui     Run frontend lint"
+	@echo "  verify      Run Go tests, Go vet, UI lint, and UI build"
 	@echo "  install-deps Install Go and UI dependencies"

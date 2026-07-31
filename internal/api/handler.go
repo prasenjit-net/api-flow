@@ -4,6 +4,8 @@ import (
 	"encoding/json"
 	"net/http"
 
+	"github.com/go-chi/chi/v5/middleware"
+
 	"github.com/prasenjit-net/api-flow/internal/config"
 	"github.com/prasenjit-net/api-flow/internal/registry"
 	"github.com/prasenjit-net/api-flow/internal/store"
@@ -47,6 +49,14 @@ func respondJSON(w http.ResponseWriter, status int, payload any) {
 	_ = json.NewEncoder(w).Encode(payload)
 }
 
-func respondError(w http.ResponseWriter, status int, msg string) {
-	respondJSON(w, status, map[string]string{"error": msg})
+func respondError(w http.ResponseWriter, r *http.Request, status int, msg string) {
+	payload := map[string]any{"error": msg}
+	respondJSON(w, status, withRequestID(r, payload))
+}
+
+func withRequestID(r *http.Request, payload map[string]any) map[string]any {
+	if requestID := middleware.GetReqID(r.Context()); requestID != "" {
+		payload["requestId"] = requestID
+	}
+	return payload
 }

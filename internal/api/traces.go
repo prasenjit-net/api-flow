@@ -13,7 +13,7 @@ import (
 func (h *Handler) ListTraces(w http.ResponseWriter, r *http.Request) {
 	traces, err := h.store.ListTraces()
 	if err != nil {
-		respondError(w, http.StatusInternalServerError, err.Error())
+		respondError(w, r, http.StatusInternalServerError, err.Error())
 		return
 	}
 
@@ -46,11 +46,11 @@ func (h *Handler) GetTrace(w http.ResponseWriter, r *http.Request) {
 	traceID := chi.URLParam(r, "traceId")
 	trace, err := h.store.GetTrace(traceID)
 	if err == store.ErrNotFound {
-		respondError(w, http.StatusNotFound, "trace not found")
+		respondError(w, r, http.StatusNotFound, "trace not found")
 		return
 	}
 	if err != nil {
-		respondError(w, http.StatusInternalServerError, err.Error())
+		respondError(w, r, http.StatusInternalServerError, err.Error())
 		return
 	}
 	respondJSON(w, http.StatusOK, trace)
@@ -59,7 +59,7 @@ func (h *Handler) GetTrace(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) DeleteTrace(w http.ResponseWriter, r *http.Request) {
 	traceID := chi.URLParam(r, "traceId")
 	if err := h.store.DeleteTrace(traceID); err != nil {
-		respondError(w, http.StatusInternalServerError, err.Error())
+		respondError(w, r, http.StatusInternalServerError, err.Error())
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
@@ -67,7 +67,7 @@ func (h *Handler) DeleteTrace(w http.ResponseWriter, r *http.Request) {
 
 func (h *Handler) DeleteAllTraces(w http.ResponseWriter, r *http.Request) {
 	if err := h.store.DeleteAllTraces(); err != nil {
-		respondError(w, http.StatusInternalServerError, err.Error())
+		respondError(w, r, http.StatusInternalServerError, err.Error())
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)

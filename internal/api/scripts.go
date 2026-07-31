@@ -18,7 +18,7 @@ import (
 func (h *Handler) ListScripts(w http.ResponseWriter, r *http.Request) {
 	scripts, err := h.store.ListScripts()
 	if err != nil {
-		respondError(w, http.StatusInternalServerError, err.Error())
+		respondError(w, r, http.StatusInternalServerError, err.Error())
 		return
 	}
 	if scripts == nil {
@@ -33,11 +33,11 @@ func (h *Handler) ListScripts(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) GetScript(w http.ResponseWriter, r *http.Request) {
 	script, err := h.store.GetScript(chi.URLParam(r, "scriptId"))
 	if err == store.ErrNotFound {
-		respondError(w, http.StatusNotFound, "script not found")
+		respondError(w, r, http.StatusNotFound, "script not found")
 		return
 	}
 	if err != nil {
-		respondError(w, http.StatusInternalServerError, err.Error())
+		respondError(w, r, http.StatusInternalServerError, err.Error())
 		return
 	}
 	respondJSON(w, http.StatusOK, script)
@@ -46,10 +46,10 @@ func (h *Handler) GetScript(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) CreateScript(w http.ResponseWriter, r *http.Request) {
 	var script domain.Script
 	if err := json.NewDecoder(r.Body).Decode(&script); err != nil {
-		respondError(w, http.StatusBadRequest, "invalid JSON")
+		respondError(w, r, http.StatusBadRequest, "invalid JSON")
 		return
 	}
-	if !validateScriptPayload(w, script) {
+	if !validateScriptPayload(w, r, script) {
 		return
 	}
 	now := time.Now().UTC()
@@ -57,7 +57,7 @@ func (h *Handler) CreateScript(w http.ResponseWriter, r *http.Request) {
 	script.CreatedAt = now
 	script.UpdatedAt = now
 	if err := h.store.SaveScript(script); err != nil {
-		respondError(w, http.StatusInternalServerError, err.Error())
+		respondError(w, r, http.StatusInternalServerError, err.Error())
 		return
 	}
 	respondJSON(w, http.StatusCreated, script)
@@ -67,26 +67,26 @@ func (h *Handler) UpdateScript(w http.ResponseWriter, r *http.Request) {
 	scriptID := chi.URLParam(r, "scriptId")
 	existing, err := h.store.GetScript(scriptID)
 	if err == store.ErrNotFound {
-		respondError(w, http.StatusNotFound, "script not found")
+		respondError(w, r, http.StatusNotFound, "script not found")
 		return
 	}
 	if err != nil {
-		respondError(w, http.StatusInternalServerError, err.Error())
+		respondError(w, r, http.StatusInternalServerError, err.Error())
 		return
 	}
 	var script domain.Script
 	if err := json.NewDecoder(r.Body).Decode(&script); err != nil {
-		respondError(w, http.StatusBadRequest, "invalid JSON")
+		respondError(w, r, http.StatusBadRequest, "invalid JSON")
 		return
 	}
-	if !validateScriptPayload(w, script) {
+	if !validateScriptPayload(w, r, script) {
 		return
 	}
 	script.ID = existing.ID
 	script.CreatedAt = existing.CreatedAt
 	script.UpdatedAt = time.Now().UTC()
 	if err := h.store.SaveScript(script); err != nil {
-		respondError(w, http.StatusInternalServerError, err.Error())
+		respondError(w, r, http.StatusInternalServerError, err.Error())
 		return
 	}
 	respondJSON(w, http.StatusOK, script)
@@ -95,22 +95,22 @@ func (h *Handler) UpdateScript(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) DeleteScript(w http.ResponseWriter, r *http.Request) {
 	scriptID := chi.URLParam(r, "scriptId")
 	if _, err := h.store.GetScript(scriptID); err == store.ErrNotFound {
-		respondError(w, http.StatusNotFound, "script not found")
+		respondError(w, r, http.StatusNotFound, "script not found")
 		return
 	} else if err != nil {
-		respondError(w, http.StatusInternalServerError, err.Error())
+		respondError(w, r, http.StatusInternalServerError, err.Error())
 		return
 	}
 	specs, err := h.store.ListSpecMeta()
 	if err != nil {
-		respondError(w, http.StatusInternalServerError, err.Error())
+		respondError(w, r, http.StatusInternalServerError, err.Error())
 		return
 	}
 	var references []map[string]string
 	for _, spec := range specs {
 		flows, err := h.store.ListFlows(spec.ID)
 		if err != nil {
-			respondError(w, http.StatusInternalServerError, err.Error())
+			respondError(w, r, http.StatusInternalServerError, err.Error())
 			return
 		}
 		for _, flow := range flows {
@@ -126,32 +126,32 @@ func (h *Handler) DeleteScript(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	if len(references) > 0 {
-		respondJSON(w, http.StatusConflict, map[string]any{
+		respondJSON(w, http.StatusConflict, withRequestID(r, map[string]any{
 			"error":      "script is referenced by saved flows",
 			"references": references,
-		})
+		}))
 		return
 	}
 	if err := h.store.DeleteScript(scriptID); err != nil {
-		respondError(w, http.StatusInternalServerError, err.Error())
+		respondError(w, r, http.StatusInternalServerError, err.Error())
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
 }
 
-func validateScriptPayload(w http.ResponseWriter, script domain.Script) bool {
+func validateScriptPayload(w http.ResponseWriter, r *http.Request, script domain.Script) bool {
 	if strings.TrimSpace(script.Name) == "" {
-		respondError(w, http.StatusUnprocessableEntity, "script name is required")
+		respondError(w, r, http.StatusUnprocessableEntity, "script name is required")
 		return false
 	}
 	if strings.TrimSpace(script.Source) == "" {
-		respondError(w, http.StatusUnprocessableEntity, "script source is required")
+		respondError(w, r, http.StatusUnprocessableEntity, "script source is required")
 		return false
 	}
 	if err := executor.ValidateStarlarkSource(script.Name, script.Source); err != nil {
-		respondJSON(w, http.StatusUnprocessableEntity, map[string]string{
+		respondJSON(w, http.StatusUnprocessableEntity, withRequestID(r, map[string]any{
 			"error": "invalid Starlark script: " + err.Error(),
-		})
+		}))
 		return false
 	}
 	return true
