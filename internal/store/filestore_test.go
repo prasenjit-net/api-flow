@@ -67,7 +67,7 @@ func TestCreateReleaseSnapshotsDraftAndReferencedScripts(t *testing.T) {
 	if err := dataStore.SaveSpecFile(specID, []byte("openapi: 3.0.3\ninfo:\n  title: Test\n  version: 1\npaths: {}\n")); err != nil {
 		t.Fatalf("save spec file: %v", err)
 	}
-	if err := dataStore.SaveScript(domain.Script{ID: "script-one", Name: "Script", Source: "def run(input):\n    return {\"value\": 1}\n"}); err != nil {
+	if err := dataStore.SaveScript(specID, domain.Script{ID: "script-one", SpecID: specID, Name: "Script", Source: "def run(input):\n    return {\"value\": 1}\n"}); err != nil {
 		t.Fatalf("save script: %v", err)
 	}
 	if err := dataStore.SaveTemplate(specID, domain.Template{ID: "template-one", SpecID: specID, Name: "Template", Body: "v1"}); err != nil {
@@ -100,7 +100,7 @@ func TestCreateReleaseSnapshotsDraftAndReferencedScripts(t *testing.T) {
 	if release.Version != 1 || len(release.Flows) != 1 || len(release.Templates) != 1 || len(release.Scripts) != 1 {
 		t.Fatalf("unexpected release contents: %#v", release)
 	}
-	if err := dataStore.SaveScript(domain.Script{ID: "script-one", Name: "Script", Source: "def run(input):\n    return {\"value\": 2}\n"}); err != nil {
+	if err := dataStore.SaveScript(specID, domain.Script{ID: "script-one", SpecID: specID, Name: "Script", Source: "def run(input):\n    return {\"value\": 2}\n"}); err != nil {
 		t.Fatalf("update script: %v", err)
 	}
 	if err := dataStore.SaveTemplate(specID, domain.Template{ID: "template-one", SpecID: specID, Name: "Template", Body: "v2"}); err != nil {
@@ -120,6 +120,54 @@ func TestCreateReleaseSnapshotsDraftAndReferencedScripts(t *testing.T) {
 	}
 	if hash == release.ContentHash {
 		t.Fatal("expected draft hash to change after editing draft content")
+	}
+}
+
+func TestNewMigratesReferencedGlobalScriptsIntoSpecs(t *testing.T) {
+	dir := t.TempDir()
+	specID := "spec-one"
+	scriptID := "legacy-script"
+	if err := os.MkdirAll(filepath.Join(dir, "specs", specID, "flows"), 0o755); err != nil {
+		t.Fatalf("create flow directory: %v", err)
+	}
+	if err := os.MkdirAll(filepath.Join(dir, "scripts"), 0o755); err != nil {
+		t.Fatalf("create legacy script directory: %v", err)
+	}
+	if err := writeJSON(filepath.Join(dir, "specs", specID, "meta.json"), domain.SpecMeta{ID: specID, Name: "Spec One"}); err != nil {
+		t.Fatalf("write spec metadata: %v", err)
+	}
+	if err := writeJSON(filepath.Join(dir, "specs", specID, "flows", "post-items.json"), domain.Flow{
+		SpecID:      specID,
+		OperationID: "post-items",
+		Nodes: []domain.Node{{
+			ID:   "script",
+			Type: domain.NodeTypeStarlark,
+			Data: domain.NodeData{ScriptID: scriptID},
+		}},
+	}); err != nil {
+		t.Fatalf("write flow: %v", err)
+	}
+	if err := writeJSON(filepath.Join(dir, "scripts", scriptID+".json"), domain.Script{
+		ID:     scriptID,
+		Name:   "Legacy",
+		Source: "def run(input):\n    return input\n",
+	}); err != nil {
+		t.Fatalf("write global script: %v", err)
+	}
+
+	dataStore, err := New(dir)
+	if err != nil {
+		t.Fatalf("create store: %v", err)
+	}
+	script, err := dataStore.GetScript(specID, scriptID)
+	if err != nil {
+		t.Fatalf("get migrated script: %v", err)
+	}
+	if script.SpecID != specID {
+		t.Fatalf("unexpected migrated scope: %#v", script)
+	}
+	if _, err := os.Stat(filepath.Join(dir, "legacy-scripts-migrated", scriptID+".json")); err != nil {
+		t.Fatalf("expected migrated source backup: %v", err)
 	}
 }
 

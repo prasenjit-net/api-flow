@@ -24,7 +24,7 @@ function useIsDark() {
   return isDark
 }
 
-function ScriptEditor({ editing, onClose }: { editing: Script | null; onClose: () => void }) {
+function ScriptEditor({ specId, editing, onClose }: { specId: string; editing: Script | null; onClose: () => void }) {
   const qc = useQueryClient()
   const isDark = useIsDark()
   const [name, setName] = useState(editing?.name ?? '')
@@ -34,10 +34,10 @@ function ScriptEditor({ editing, onClose }: { editing: Script | null; onClose: (
 
   const mutation = useMutation({
     mutationFn: () => editing
-      ? scriptsApi.update(editing.id, { name, description, source })
-      : scriptsApi.create({ name, description, source }),
+      ? scriptsApi.update(specId, editing.id, { name, description, source })
+      : scriptsApi.create(specId, { name, description, source }),
     onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ['scripts'] })
+      qc.invalidateQueries({ queryKey: ['scripts', specId] })
       onClose()
     },
     onError: (mutationError: Error) => setError(mutationError.message),
@@ -83,7 +83,7 @@ function ScriptEditor({ editing, onClose }: { editing: Script | null; onClose: (
           disabled={!name.trim() || !source.trim() || mutation.isPending}
           className="rounded bg-blue-600 px-4 py-1.5 text-xs font-semibold text-white hover:bg-blue-700 disabled:opacity-50"
         >
-          {mutation.isPending ? 'Saving…' : editing ? 'Update' : 'Create'}
+          {mutation.isPending ? 'Saving...' : editing ? 'Update' : 'Create'}
         </button>
       </div>
 
@@ -123,97 +123,117 @@ function ScriptEditor({ editing, onClose }: { editing: Script | null; onClose: (
 }
 
 export function ScriptEditorPage() {
-  const { scriptId } = useParams<{ scriptId?: string }>()
+  const { specId, scriptId } = useParams<{ specId: string; scriptId?: string }>()
   const navigate = useNavigate()
   const { data: script, isLoading, error } = useQuery({
-    queryKey: ['scripts', scriptId],
-    queryFn: () => scriptsApi.get(scriptId!),
-    enabled: !!scriptId,
+    queryKey: ['scripts', specId, scriptId],
+    queryFn: () => scriptsApi.get(specId!, scriptId!),
+    enabled: !!specId && !!scriptId,
   })
 
-  if (scriptId && isLoading) return <div className="flex h-40 items-center justify-center text-sm text-slate-400">Loading…</div>
+  if (!specId) return <div className="flex h-40 items-center justify-center text-sm text-red-400">Failed to load specification.</div>
+  if (scriptId && isLoading) return <div className="flex h-40 items-center justify-center text-sm text-slate-400">Loading...</div>
   if (scriptId && (error || !script)) return <div className="flex h-40 items-center justify-center text-sm text-red-400">Failed to load script.</div>
 
-  return <ScriptEditor editing={scriptId ? script! : null} onClose={() => navigate('/scripts')} />
+  return <ScriptEditor specId={specId} editing={scriptId ? script! : null} onClose={() => navigate(`/specifications/${specId}?tab=scripts`)} />
 }
 
-export default function ScriptsPage() {
+export function ScriptsPanel({ specId, showHeader = true }: { specId: string; showHeader?: boolean }) {
   const qc = useQueryClient()
   const navigate = useNavigate()
   const [deleteError, setDeleteError] = useState('')
   const { data: scripts = [], isLoading } = useQuery({
-    queryKey: ['scripts'],
-    queryFn: scriptsApi.list,
+    queryKey: ['scripts', specId],
+    queryFn: () => scriptsApi.list(specId),
+    enabled: !!specId,
   })
   const deleteMutation = useMutation({
-    mutationFn: scriptsApi.delete,
+    mutationFn: (scriptId: string) => scriptsApi.delete(specId, scriptId),
     onSuccess: () => {
       setDeleteError('')
-      qc.invalidateQueries({ queryKey: ['scripts'] })
+      qc.invalidateQueries({ queryKey: ['scripts', specId] })
     },
     onError: (error: Error) => setDeleteError(error.message),
   })
 
   return (
-    <>
-      <div className="flex h-full flex-col">
+    <div className="flex h-full flex-col">
+      {showHeader ? (
         <div className="flex h-14 shrink-0 items-center justify-between border-b border-slate-200 px-6 dark:border-slate-800">
           <div className="flex items-center gap-3">
             <Code2 className="h-4 w-4 text-slate-400" />
             <span className="text-sm font-semibold text-slate-800 dark:text-slate-100">Scripts</span>
             {!isLoading && <span className="rounded bg-slate-100 px-2 py-0.5 text-xs text-slate-500 dark:bg-slate-800 dark:text-slate-400">{scripts.length}</span>}
           </div>
-          <button type="button" onClick={() => navigate('/scripts/new')} className="flex items-center gap-1.5 rounded bg-blue-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-blue-700">
+          <button type="button" onClick={() => navigate(`/specifications/${specId}/scripts/new`)} className="flex items-center gap-1.5 rounded bg-blue-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-blue-700">
             <Plus className="h-3.5 w-3.5" /> New Script
           </button>
         </div>
-
-        {deleteError && <div className="border-b border-red-200 bg-red-50 px-6 py-2 text-xs text-red-700 dark:border-red-900/50 dark:bg-red-950/30 dark:text-red-300">{deleteError}</div>}
-
-        <div className="flex-1 overflow-y-auto">
-          {isLoading ? (
-            <div className="flex h-40 items-center justify-center text-sm text-slate-400">Loading…</div>
-          ) : scripts.length === 0 ? (
-            <div className="flex h-60 flex-col items-center justify-center gap-3">
-              <Code2 className="h-8 w-8 text-slate-300 dark:text-slate-600" />
-              <p className="text-sm text-slate-500">No Starlark scripts yet</p>
-              <button type="button" onClick={() => navigate('/scripts/new')} className="text-sm text-blue-600 hover:underline dark:text-blue-400">Create your first script</button>
-            </div>
-          ) : (
-            <div>
-              <div className="grid grid-cols-[1fr_1fr_120px_auto] items-center gap-4 border-b border-slate-200 bg-slate-50 px-6 py-2 text-[11px] font-semibold uppercase tracking-wider text-slate-400 dark:border-slate-800 dark:bg-slate-900">
-                <span>Name</span>
-                <span>Description</span>
-                <span>Updated</span>
-                <span />
-              </div>
-              <div className="divide-y divide-slate-100 dark:divide-slate-800/60">
-                {scripts.map(script => (
-                  <div key={script.id} className="grid grid-cols-[1fr_1fr_120px_auto] items-center gap-4 px-6 py-3 hover:bg-slate-50 dark:hover:bg-slate-900/50">
-                    <button type="button" onClick={() => navigate(`/scripts/${script.id}/edit`)} className="text-left text-sm font-medium text-slate-800 hover:text-blue-600 dark:text-slate-200 dark:hover:text-blue-400">{script.name}</button>
-                    <span className="truncate text-xs text-slate-500 dark:text-slate-400">{script.description || '—'}</span>
-                    <span className="text-xs text-slate-400">{new Date(script.updatedAt).toLocaleDateString()}</span>
-                    <div className="flex items-center gap-1">
-                      <button type="button" onClick={() => navigate(`/scripts/${script.id}/edit`)} className="rounded p-1.5 text-slate-400 hover:bg-slate-100 hover:text-slate-600 dark:hover:bg-slate-800">
-                        <Pencil className="h-3.5 w-3.5" />
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => {
-                          if (confirm(`Delete "${script.name}"?`)) deleteMutation.mutate(script.id)
-                        }}
-                        className="rounded p-1.5 text-slate-400 hover:bg-red-50 hover:text-red-500 dark:hover:bg-red-950/30"
-                      >
-                        <Trash2 className="h-3.5 w-3.5" />
-                      </button>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
+      ) : (
+        <div className="flex min-h-14 shrink-0 flex-wrap items-center justify-between gap-3 border-b border-slate-200 px-4 py-3 dark:border-slate-800 sm:px-6">
+          <div className="flex items-center gap-3">
+            <Code2 className="h-4 w-4 text-slate-400" />
+            <span className="text-sm font-semibold text-slate-800 dark:text-slate-100">Scripts</span>
+            {!isLoading && <span className="rounded bg-slate-100 px-2 py-0.5 text-xs text-slate-500 dark:bg-slate-800 dark:text-slate-400">{scripts.length}</span>}
+          </div>
+          <button type="button" onClick={() => navigate(`/specifications/${specId}/scripts/new`)} className="flex items-center gap-1.5 rounded bg-blue-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-blue-700">
+            <Plus className="h-3.5 w-3.5" /> New Script
+          </button>
         </div>
+      )}
+
+      {deleteError && <div className="border-b border-red-200 bg-red-50 px-6 py-2 text-xs text-red-700 dark:border-red-900/50 dark:bg-red-950/30 dark:text-red-300">{deleteError}</div>}
+
+      <div className="flex-1 overflow-y-auto">
+        {isLoading ? (
+          <div className="flex h-40 items-center justify-center text-sm text-slate-400">Loading...</div>
+        ) : scripts.length === 0 ? (
+          <div className="flex h-60 flex-col items-center justify-center gap-3">
+            <Code2 className="h-8 w-8 text-slate-300 dark:text-slate-600" />
+            <p className="text-sm text-slate-500">No Starlark scripts yet</p>
+            <button type="button" onClick={() => navigate(`/specifications/${specId}/scripts/new`)} className="text-sm text-blue-600 hover:underline dark:text-blue-400">Create your first script</button>
+          </div>
+        ) : (
+          <div>
+            <div className="hidden grid-cols-[1fr_1fr_120px_auto] items-center gap-4 border-b border-slate-200 bg-slate-50 px-6 py-2 text-[11px] font-semibold uppercase tracking-wider text-slate-400 dark:border-slate-800 dark:bg-slate-900 md:grid">
+              <span>Name</span>
+              <span>Description</span>
+              <span>Updated</span>
+              <span />
+            </div>
+            <div className="divide-y divide-slate-100 dark:divide-slate-800/60">
+              {scripts.map(script => (
+                <div key={script.id} className="grid gap-3 px-4 py-3 hover:bg-slate-50 dark:hover:bg-slate-900/50 md:grid-cols-[1fr_1fr_120px_auto] md:items-center md:gap-4 md:px-6">
+                  <button type="button" onClick={() => navigate(`/specifications/${specId}/scripts/${script.id}/edit`)} className="text-left text-sm font-medium text-slate-800 hover:text-blue-600 dark:text-slate-200 dark:hover:text-blue-400">{script.name}</button>
+                  <span className="text-xs text-slate-500 dark:text-slate-400 md:truncate">{script.description || '-'}</span>
+                  <span className="text-xs text-slate-400">{new Date(script.updatedAt).toLocaleDateString()}</span>
+                  <div className="flex items-center gap-1">
+                    <button type="button" onClick={() => navigate(`/specifications/${specId}/scripts/${script.id}/edit`)} className="rounded p-1.5 text-slate-400 hover:bg-slate-100 hover:text-slate-600 dark:hover:bg-slate-800" title="Edit">
+                      <Pencil className="h-3.5 w-3.5" />
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        if (confirm(`Delete "${script.name}"?`)) deleteMutation.mutate(script.id)
+                      }}
+                      className="rounded p-1.5 text-slate-400 hover:bg-red-50 hover:text-red-500 dark:hover:bg-red-950/30"
+                      title="Delete"
+                    >
+                      <Trash2 className="h-3.5 w-3.5" />
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
       </div>
-    </>
+    </div>
   )
+}
+
+export default function ScriptsPage() {
+  const { specId } = useParams<{ specId: string }>()
+  if (!specId) return <div className="flex h-40 items-center justify-center text-sm text-red-400">Failed to load specification.</div>
+  return <ScriptsPanel specId={specId} />
 }

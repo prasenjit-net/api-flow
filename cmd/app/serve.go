@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"os/signal"
 	"syscall"
+	"time"
 
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
@@ -16,6 +17,7 @@ import (
 	"github.com/prasenjit-net/api-flow/internal/logging"
 	"github.com/prasenjit-net/api-flow/internal/registry"
 	"github.com/prasenjit-net/api-flow/internal/server"
+	"github.com/prasenjit-net/api-flow/internal/sessions"
 	"github.com/prasenjit-net/api-flow/internal/store"
 	"github.com/prasenjit-net/api-flow/internal/version"
 )
@@ -54,7 +56,8 @@ func runServe(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("init store: %w", err)
 	}
 
-	exec := executor.New(fileStore)
+	sessionManager := sessions.NewManager(30 * time.Minute)
+	exec := executor.New(fileStore, sessionManager)
 	reg := registry.New(fileStore, exec)
 	reg.LoadFromStore()
 
@@ -63,6 +66,7 @@ func runServe(cmd *cobra.Command, args []string) error {
 		UIFS:     uiFS,
 		Store:    fileStore,
 		Registry: reg,
+		Sessions: sessionManager,
 	})
 	if err != nil {
 		return err

@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { NavLink, Outlet } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
-import { Activity, BarChart3, Code2, FileJson, FileCode, Menu, Moon, Monitor, Sun, X } from 'lucide-react'
+import { Activity, BarChart3, FileJson, FlaskConical, Layers, Menu, Moon, Monitor, Sun, X } from 'lucide-react'
 import clsx from 'clsx'
 import { LogoFull } from './Logo'
 import { metaApi } from '../services/api'
@@ -12,8 +12,8 @@ const themeKey = 'api-flow-theme'
 const navItems = [
   { to: '/overview', label: 'Overview', icon: BarChart3 },
   { to: '/specifications', label: 'Specifications', icon: FileJson },
-  { to: '/templates', label: 'Templates', icon: FileCode },
-  { to: '/scripts', label: 'Scripts', icon: Code2 },
+  { to: '/test-ground', label: 'Test Ground', icon: FlaskConical },
+  { to: '/sessions', label: 'Sessions', icon: Layers },
   { to: '/traces', label: 'Traces', icon: Activity },
 ]
 
@@ -137,24 +137,10 @@ export default function Layout() {
             >
               <Menu className="h-5 w-5" />
             </button>
-            <LogoFull iconSize={32} title="API Flow" />
-            <div className="flex items-center gap-1 rounded-lg bg-gray-100 p-1 dark:bg-slate-800">
-              {themeOptions.map(option => (
-                <button
-                  key={option.value}
-                  type="button"
-                  onClick={() => setThemeMode(option.value)}
-                  className={clsx(
-                    'rounded-md px-2 py-1 text-xs font-medium transition-colors',
-                    themeMode === option.value
-                      ? 'bg-white text-gray-900 dark:bg-slate-700 dark:text-slate-100'
-                      : 'text-gray-500 dark:text-slate-400',
-                  )}
-                >
-                  {option.label}
-                </button>
-              ))}
+            <div className="flex min-w-0 flex-1 justify-center">
+              <LogoFull iconSize={32} title="API Flow" />
             </div>
+            <div className="h-10 w-10 shrink-0" />
           </div>
         </header>
 
@@ -186,9 +172,15 @@ export default function Layout() {
             </button>
           </div>
           <nav className="flex-1 overflow-y-auto px-4 py-6">{navLinks}</nav>
-          <div className="border-t border-gray-200 p-4 text-xs text-gray-500 dark:border-slate-800 dark:text-slate-400">
-            <p className="font-medium">{meta?.name ?? 'API Flow'}</p>
-            <p>{meta?.description ?? 'API flow visualization tool'}</p>
+          <div className="border-t border-gray-200 p-4 dark:border-slate-800">
+            <div className="mb-4">
+              <div className="mb-2 text-xs font-semibold text-gray-500 dark:text-slate-400">Theme</div>
+              {themeToggle}
+            </div>
+            <div className="text-xs text-gray-500 dark:text-slate-400">
+              <p className="font-medium">{meta?.name ?? 'API Flow'}</p>
+              <p>{meta?.description ?? 'API flow visualization tool'}</p>
+            </div>
           </div>
         </aside>
 

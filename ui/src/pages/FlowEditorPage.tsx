@@ -109,8 +109,9 @@ function FlowEditor() {
   })
 
   const { data: scripts = [] } = useQuery({
-    queryKey: ['scripts'],
-    queryFn: scriptsApi.list,
+    queryKey: ['scripts', specId],
+    queryFn: () => scriptsApi.list(specId!),
+    enabled: !!specId,
   })
 
   const { data: collections = [] } = useQuery({
@@ -408,10 +409,6 @@ function FlowEditor() {
           </button>
           </div>
         </div>
-      </div>
-
-      <div className="shrink-0 border-b border-amber-200 bg-amber-50 px-4 py-2 text-xs font-medium text-amber-800 dark:border-amber-900/50 dark:bg-amber-950/30 dark:text-amber-200">
-        Editing draft; changes go live after release and publish.
       </div>
 
       {saveErrorMessage && (

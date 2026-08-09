@@ -32,7 +32,7 @@ export default function StarlarkNodeModal({
         <div className="flex items-center justify-between border-b border-slate-200 px-5 py-3.5 dark:border-slate-800">
           <div>
             <h2 className="text-sm font-semibold text-slate-800 dark:text-slate-100">Starlark Node</h2>
-            <p className="mt-0.5 text-xs text-slate-500">Execute a global script with only the mapped input variables.</p>
+            <p className="mt-0.5 text-xs text-slate-500">Execute a spec script with only the mapped input variables.</p>
           </div>
           <button type="button" onClick={onClose} className="rounded p-1 text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800">
             <X className="h-4 w-4" />
@@ -60,7 +60,7 @@ export default function StarlarkNodeModal({
           </div>
 
           {script && <pre className="max-h-40 overflow-hidden rounded border border-slate-200 bg-slate-50 p-3 font-mono text-[11px] leading-relaxed text-slate-500 dark:border-slate-700 dark:bg-slate-800/60 dark:text-slate-400">{script.source.slice(0, 600)}{script.source.length > 600 ? '…' : ''}</pre>}
-          {scripts.length === 0 && <p className="text-xs text-slate-400">No scripts exist yet. Create one from the Scripts page.</p>}
+          {scripts.length === 0 && <p className="text-xs text-slate-400">No scripts exist yet. Create one from this specification's Scripts tab.</p>}
         </div>
 
         <div className="flex justify-end gap-2 border-t border-slate-200 px-5 py-3.5 dark:border-slate-800">

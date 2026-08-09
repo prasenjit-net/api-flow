@@ -10,15 +10,16 @@ import (
 
 	"github.com/prasenjit-net/api-flow/internal/config"
 	"github.com/prasenjit-net/api-flow/internal/registry"
+	"github.com/prasenjit-net/api-flow/internal/sessions"
 	"github.com/prasenjit-net/api-flow/internal/store"
 	"github.com/prasenjit-net/api-flow/internal/version"
 )
 
-func NewRouter(cfg config.Config, logger *slog.Logger, build version.Info, s store.Store, reg *registry.Registry) http.Handler {
+func NewRouter(cfg config.Config, logger *slog.Logger, build version.Info, s store.Store, reg *registry.Registry, managers ...*sessions.Manager) http.Handler {
 	r := chi.NewRouter()
 	r.Use(middleware.Timeout(30 * time.Second))
 
-	h := NewHandler(cfg, build, s, reg)
+	h := NewHandler(cfg, build, s, reg, managers...)
 
 	r.Get("/meta", h.Meta)
 
@@ -39,6 +40,11 @@ func NewRouter(cfg config.Config, logger *slog.Logger, build version.Info, s sto
 		r.Post("/{id}/templates", h.CreateTemplate)
 		r.Put("/{id}/templates/{templateId}", h.UpdateTemplate)
 		r.Delete("/{id}/templates/{templateId}", h.DeleteTemplate)
+		r.Get("/{id}/scripts", h.ListScripts)
+		r.Post("/{id}/scripts", h.CreateScript)
+		r.Get("/{id}/scripts/{scriptId}", h.GetScript)
+		r.Put("/{id}/scripts/{scriptId}", h.UpdateScript)
+		r.Delete("/{id}/scripts/{scriptId}", h.DeleteScript)
 		r.Get("/{id}/operations/{opId}/response-examples", h.ListResponseExamples)
 		r.Get("/{id}/collections", h.ListCollections)
 		r.Post("/{id}/collections", h.CreateCollection)
@@ -52,19 +58,31 @@ func NewRouter(cfg config.Config, logger *slog.Logger, build version.Info, s sto
 		r.Delete("/{id}/collections/{collectionId}/documents/{documentId}", h.DeleteDocument)
 	})
 
-	r.Route("/scripts", func(r chi.Router) {
-		r.Get("/", h.ListScripts)
-		r.Post("/", h.CreateScript)
-		r.Get("/{scriptId}", h.GetScript)
-		r.Put("/{scriptId}", h.UpdateScript)
-		r.Delete("/{scriptId}", h.DeleteScript)
-	})
-
 	r.Route("/traces", func(r chi.Router) {
 		r.Get("/", h.ListTraces)
 		r.Delete("/", h.DeleteAllTraces)
 		r.Get("/{traceId}", h.GetTrace)
 		r.Delete("/{traceId}", h.DeleteTrace)
+	})
+
+	r.Route("/sessions", func(r chi.Router) {
+		r.Get("/", h.ListSessions)
+		r.Get("/{sessionId}", h.GetSession)
+		r.Delete("/{sessionId}", h.DeleteSession)
+		r.Post("/{sessionId}/persist", h.PersistSession)
+	})
+
+	r.Route("/test-ground", func(r chi.Router) {
+		r.Get("/plans", h.ListTestPlans)
+		r.Post("/plans", h.CreateTestPlan)
+		r.Get("/plans/{planId}", h.GetTestPlan)
+		r.Put("/plans/{planId}", h.UpdateTestPlan)
+		r.Delete("/plans/{planId}", h.DeleteTestPlan)
+		r.Get("/plans/{planId}/requests", h.ListTestPlanRequests)
+		r.Post("/plans/{planId}/requests", h.CreateTestPlanRequest)
+		r.Get("/plans/{planId}/requests/{requestId}", h.GetTestPlanRequest)
+		r.Put("/plans/{planId}/requests/{requestId}", h.UpdateTestPlanRequest)
+		r.Delete("/plans/{planId}/requests/{requestId}", h.DeleteTestPlanRequest)
 	})
 
 	logger.Debug("api router initialized")

@@ -4,6 +4,7 @@ import "time"
 
 type Script struct {
 	ID          string    `json:"id"`
+	SpecID      string    `json:"specId"`
 	Name        string    `json:"name"`
 	Description string    `json:"description"`
 	Source      string    `json:"source"`

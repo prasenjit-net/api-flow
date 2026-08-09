@@ -17,7 +17,7 @@ function JsonBlock({ value }: { value: unknown }) {
 
 function DetailCard({ title, icon: Icon, children }: { title: string; icon: typeof Activity; children: React.ReactNode }) {
   return (
-    <section className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-800 dark:bg-slate-900">
+    <section className="rounded-lg border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-800 dark:bg-slate-900">
       <div className="mb-3 flex items-center gap-2">
         <Icon className="h-4 w-4 text-slate-400" />
         <h2 className="text-sm font-semibold text-slate-800 dark:text-slate-100">{title}</h2>
@@ -92,7 +92,7 @@ function TraceNodeCard({ node, index }: { node: TraceNode; index: number }) {
   return (
     <div className="relative pl-9">
       <div className={clsx('absolute left-2 top-4 h-3 w-3 rounded-full ring-4 ring-white dark:ring-slate-900', tone.rail)} />
-      <div className={clsx('rounded-2xl border p-3 shadow-sm', tone.card)}>
+      <div className={clsx('rounded-lg border p-3 shadow-sm', tone.card)}>
         <div className="mb-3 flex flex-wrap items-center gap-2">
           <span className={clsx('rounded-md p-1.5', tone.icon)}>
             <Icon className="h-3.5 w-3.5" />
@@ -180,7 +180,7 @@ export default function TraceDetailPage() {
 
   return (
     <div className="flex h-full flex-col">
-      <div className="flex h-14 shrink-0 items-center gap-3 border-b border-slate-200 px-6 dark:border-slate-800">
+      <div className="flex min-h-14 shrink-0 flex-wrap items-center gap-3 border-b border-slate-200 px-4 py-3 dark:border-slate-800 sm:px-6">
         <Link to="/traces" className="flex items-center gap-1 text-xs text-slate-400 hover:text-slate-700 dark:hover:text-slate-300">
           <ChevronLeft className="h-3.5 w-3.5" /> Traces
         </Link>
@@ -191,7 +191,10 @@ export default function TraceDetailPage() {
         <span className={`rounded px-2 py-0.5 text-xs font-semibold ${trace.error || trace.statusCode >= 500 ? 'bg-red-50 text-red-600 dark:bg-red-950/30 dark:text-red-300' : 'bg-emerald-50 text-emerald-700 dark:bg-emerald-950/30 dark:text-emerald-300'}`}>
           {trace.statusCode || '—'}
         </span>
-        <span className="ml-auto inline-flex items-center gap-1 text-xs text-slate-400">
+        <span className="rounded bg-slate-100 px-2 py-0.5 text-xs font-medium text-slate-500 dark:bg-slate-800 dark:text-slate-400">
+          {trace.releaseVersion ? `Release v${trace.releaseVersion}` : 'Draft'}
+        </span>
+        <span className="inline-flex items-center gap-1 text-xs text-slate-400 sm:ml-auto">
           <Clock className="h-3.5 w-3.5" /> {trace.durationMs} ms
         </span>
       </div>

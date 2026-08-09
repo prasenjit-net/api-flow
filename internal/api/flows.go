@@ -49,10 +49,10 @@ func (h *Handler) SaveFlow(w http.ResponseWriter, r *http.Request) {
 	validationErrors := domain.ValidateFlow(flow)
 	for _, node := range flow.Nodes {
 		if node.Type == domain.NodeTypeStarlark && node.Data.ScriptID != "" {
-			if _, err := h.store.GetScript(node.Data.ScriptID); err == store.ErrNotFound {
+			if _, err := h.store.GetScript(specID, node.Data.ScriptID); err == store.ErrNotFound {
 				validationErrors = append(validationErrors, domain.FlowValidationError{
 					Code:    "script_not_found",
-					Message: "selected Starlark script does not exist",
+					Message: "selected Starlark script does not exist in this specification",
 					NodeID:  node.ID,
 					Field:   "data.scriptId",
 				})

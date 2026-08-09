@@ -83,22 +83,21 @@ export function CollectionEditorPage() {
   if (collectionId && isLoading) return <div className="flex h-40 items-center justify-center text-sm text-slate-400">Loading…</div>
   if (collectionId && (error || !collection)) return <div className="flex h-40 items-center justify-center text-sm text-red-400">Failed to load collection.</div>
 
-  return <CollectionEditor specId={specId!} editing={collectionId ? collection! : null} onClose={() => navigate(`/specifications/${specId}/collections`)} />
+  return <CollectionEditor specId={specId!} editing={collectionId ? collection! : null} onClose={() => navigate(`/specifications/${specId}?tab=collections`)} />
 }
 
-export default function CollectionsPage() {
+export function CollectionsPanel({ specId, showHeader = true }: { specId: string; showHeader?: boolean }) {
   const qc = useQueryClient()
   const navigate = useNavigate()
-  const { specId } = useParams<{ specId: string }>()
   const [editing, setEditing] = useState<Collection | null | undefined>(undefined)
   const [deleteError, setDeleteError] = useState('')
   const { data: collections = [], isLoading } = useQuery({
     queryKey: ['collections', specId],
-    queryFn: () => collectionsApi.list(specId!),
+    queryFn: () => collectionsApi.list(specId),
     enabled: !!specId,
   })
   const deleteMutation = useMutation({
-    mutationFn: (collectionId: string) => collectionsApi.delete(specId!, collectionId),
+    mutationFn: (collectionId: string) => collectionsApi.delete(specId, collectionId),
     onSuccess: () => {
       setDeleteError('')
       qc.invalidateQueries({ queryKey: ['collections', specId] })
@@ -109,16 +108,31 @@ export default function CollectionsPage() {
   return (
     <>
       <div className="flex h-full flex-col">
-        <div className="flex h-14 shrink-0 items-center justify-between border-b border-slate-200 px-6 dark:border-slate-800">
-          <div className="flex items-center gap-3">
-            <Database className="h-4 w-4 text-slate-400" />
-            <span className="text-sm font-semibold text-slate-800 dark:text-slate-100">Collections</span>
-            {!isLoading && <span className="rounded bg-slate-100 px-2 py-0.5 text-xs text-slate-500 dark:bg-slate-800 dark:text-slate-400">{collections.length}</span>}
+        {showHeader && (
+          <div className="flex h-14 shrink-0 items-center justify-between border-b border-slate-200 px-6 dark:border-slate-800">
+            <div className="flex items-center gap-3">
+              <Database className="h-4 w-4 text-slate-400" />
+              <span className="text-sm font-semibold text-slate-800 dark:text-slate-100">Collections</span>
+              {!isLoading && <span className="rounded bg-slate-100 px-2 py-0.5 text-xs text-slate-500 dark:bg-slate-800 dark:text-slate-400">{collections.length}</span>}
+            </div>
+            <button type="button" onClick={() => setEditing(null)} className="flex items-center gap-1.5 rounded bg-blue-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-blue-700">
+              <Plus className="h-3.5 w-3.5" /> New Collection
+            </button>
           </div>
-          <button type="button" onClick={() => setEditing(null)} className="flex items-center gap-1.5 rounded bg-blue-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-blue-700">
-            <Plus className="h-3.5 w-3.5" /> New Collection
-          </button>
-        </div>
+        )}
+
+        {!showHeader && (
+          <div className="flex min-h-14 shrink-0 flex-wrap items-center justify-between gap-3 border-b border-slate-200 px-4 py-3 dark:border-slate-800 sm:px-6">
+            <div className="flex items-center gap-3">
+              <Database className="h-4 w-4 text-slate-400" />
+              <span className="text-sm font-semibold text-slate-800 dark:text-slate-100">Collections</span>
+              {!isLoading && <span className="rounded bg-slate-100 px-2 py-0.5 text-xs text-slate-500 dark:bg-slate-800 dark:text-slate-400">{collections.length}</span>}
+            </div>
+            <button type="button" onClick={() => setEditing(null)} className="flex items-center gap-1.5 rounded bg-blue-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-blue-700">
+              <Plus className="h-3.5 w-3.5" /> New Collection
+            </button>
+          </div>
+        )}
 
         {deleteError && <div className="border-b border-red-200 bg-red-50 px-6 py-2 text-xs text-red-700 dark:border-red-900/50 dark:bg-red-950/30 dark:text-red-300">{deleteError}</div>}
 
@@ -133,7 +147,7 @@ export default function CollectionsPage() {
             </div>
           ) : (
             <div>
-              <div className="grid grid-cols-[1fr_1fr_120px_auto] items-center gap-4 border-b border-slate-200 bg-slate-50 px-6 py-2 text-[11px] font-semibold uppercase tracking-wider text-slate-400 dark:border-slate-800 dark:bg-slate-900">
+              <div className="hidden grid-cols-[1fr_1fr_120px_auto] items-center gap-4 border-b border-slate-200 bg-slate-50 px-6 py-2 text-[11px] font-semibold uppercase tracking-wider text-slate-400 dark:border-slate-800 dark:bg-slate-900 md:grid">
                 <span>Name</span>
                 <span>Description</span>
                 <span>Updated</span>
@@ -141,9 +155,9 @@ export default function CollectionsPage() {
               </div>
               <div className="divide-y divide-slate-100 dark:divide-slate-800/60">
                 {collections.map(collection => (
-                  <div key={collection.id} className="grid grid-cols-[1fr_1fr_120px_auto] items-center gap-4 px-6 py-3 hover:bg-slate-50 dark:hover:bg-slate-900/50">
+                  <div key={collection.id} className="grid gap-3 px-4 py-3 hover:bg-slate-50 dark:hover:bg-slate-900/50 md:grid-cols-[1fr_1fr_120px_auto] md:items-center md:gap-4 md:px-6">
                     <button type="button" onClick={() => navigate(`/specifications/${specId}/collections/${collection.id}/documents`)} className="text-left text-sm font-medium text-slate-800 hover:text-blue-600 dark:text-slate-200 dark:hover:text-blue-400">{collection.name}</button>
-                    <span className="truncate text-xs text-slate-500 dark:text-slate-400">{collection.description || '—'}</span>
+                    <span className="text-xs text-slate-500 dark:text-slate-400 md:truncate">{collection.description || '-'}</span>
                     <span className="text-xs text-slate-400">{new Date(collection.updatedAt).toLocaleDateString()}</span>
                     <div className="flex items-center gap-1">
                       <button type="button" onClick={() => navigate(`/specifications/${specId}/collections/${collection.id}/documents`)} className="rounded p-1.5 text-slate-400 hover:bg-slate-100 hover:text-slate-600 dark:hover:bg-slate-800" title="View documents">
@@ -171,7 +185,13 @@ export default function CollectionsPage() {
         </div>
       </div>
 
-      {editing !== undefined && specId && <CollectionEditor specId={specId} editing={editing} onClose={() => setEditing(undefined)} />}
+      {editing !== undefined && <CollectionEditor specId={specId} editing={editing} onClose={() => setEditing(undefined)} />}
     </>
   )
+}
+
+export default function CollectionsPage() {
+  const { specId } = useParams<{ specId: string }>()
+  if (!specId) return <div className="flex h-40 items-center justify-center text-sm text-red-400">Failed to load specification.</div>
+  return <CollectionsPanel specId={specId} />
 }

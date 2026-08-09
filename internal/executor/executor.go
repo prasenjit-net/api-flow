@@ -16,17 +16,23 @@ import (
 	"github.com/getkin/kin-openapi/openapi3"
 
 	"github.com/prasenjit-net/api-flow/internal/domain"
+	"github.com/prasenjit-net/api-flow/internal/sessions"
 	"github.com/prasenjit-net/api-flow/internal/store"
 )
 
 type Executor struct {
-	store store.Store
+	store    store.Store
+	sessions *sessions.Manager
 }
 
 var shorthandTemplatePathPattern = regexp.MustCompile(`\{\{\s*((?:request|nodes)(?:\.[A-Za-z0-9_-]+)+)\s*\}\}`)
 
-func New(s store.Store) *Executor {
-	return &Executor{store: s}
+func New(s store.Store, managers ...*sessions.Manager) *Executor {
+	var manager *sessions.Manager
+	if len(managers) > 0 {
+		manager = managers[0]
+	}
+	return &Executor{store: s, sessions: manager}
 }
 
 func (e *Executor) Execute(w http.ResponseWriter, r *http.Request, flow domain.Flow, pathParams map[string]string) {
@@ -48,6 +54,9 @@ func (e *Executor) execute(w http.ResponseWriter, r *http.Request, bundle *domai
 	if tracingEnabled {
 		responseRecorder = newTraceResponseWriter(w)
 		w = responseRecorder
+	}
+	if e.sessions != nil {
+		e.sessions.TouchFromRequest(w, r)
 	}
 
 	var traceErr string
@@ -129,7 +138,7 @@ func (e *Executor) execute(w http.ResponseWriter, r *http.Request, bundle *domai
 			contextNodes(ctx)[current.Data.Name] = nodeOutput
 		case domain.NodeTypeStarlark:
 			nodeInput = buildNodeInput(current, ctx)
-			script, found, err := e.resolveScript(bundle, current.Data.ScriptID)
+			script, found, err := e.resolveScript(bundle, flow.SpecID, current.Data.ScriptID)
 			if err != nil || !found {
 				nodeErr = fmt.Errorf("script %q not found", current.Data.ScriptID)
 				recorder.recordNode(current, nodeStartedAt, nodeInput, nil, nodeErr)
@@ -149,7 +158,7 @@ func (e *Executor) execute(w http.ResponseWriter, r *http.Request, bundle *domai
 			filters := resolveQueryFilters(current.Data.QueryMappings, ctx)
 			bodyValues := buildMappingValues(current.Data.BodyMappings, ctx)
 			nodeInput = map[string]any{"query": filterSummary(filters), "body": bodyValues}
-			output, err := e.executeDataMapper(flow.SpecID, bundle, current.Data.CollectionID, current.Data.Operation, filters, bodyValues)
+			output, err := e.executeDataMapper(w, r, flow.SpecID, bundle, current.Data.CollectionID, current.Data.Operation, filters, bodyValues)
 			if err != nil {
 				nodeErr = fmt.Errorf("data mapper node %q failed: %v", current.Data.Name, err)
 				recorder.recordNode(current, nodeStartedAt, nodeInput, nil, nodeErr)
@@ -275,7 +284,7 @@ func (e *Executor) resolveTemplate(bundle *domain.ReleaseBundle, specID, templat
 	return template, true, nil
 }
 
-func (e *Executor) resolveScript(bundle *domain.ReleaseBundle, scriptID string) (domain.Script, bool, error) {
+func (e *Executor) resolveScript(bundle *domain.ReleaseBundle, specID, scriptID string) (domain.Script, bool, error) {
 	if bundle != nil {
 		for _, script := range bundle.Scripts {
 			if script.ID == scriptID {
@@ -284,7 +293,7 @@ func (e *Executor) resolveScript(bundle *domain.ReleaseBundle, scriptID string) 
 		}
 		return domain.Script{}, false, nil
 	}
-	script, err := e.store.GetScript(scriptID)
+	script, err := e.store.GetScript(specID, scriptID)
 	if err == store.ErrNotFound {
 		return domain.Script{}, false, nil
 	}

@@ -5,8 +5,10 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/prasenjit-net/api-flow/internal/domain"
+	"github.com/prasenjit-net/api-flow/internal/sessions"
 	"github.com/prasenjit-net/api-flow/internal/store"
 )
 
@@ -81,8 +83,9 @@ func TestExecuteAppendsStarlarkOutputToContext(t *testing.T) {
 	if err != nil {
 		t.Fatalf("create store: %v", err)
 	}
-	if err := dataStore.SaveScript(domain.Script{
+	if err := dataStore.SaveScript("math-spec", domain.Script{
 		ID:     "double-script",
+		SpecID: "math-spec",
 		Name:   "Double",
 		Source: "def run(input):\n    return {\"doubled\": input[\"amount\"] * 2}\n",
 	}); err != nil {
@@ -129,6 +132,61 @@ func TestExecuteAppendsStarlarkOutputToContext(t *testing.T) {
 
 	if response.Code != http.StatusOK || response.Body.String() != "42" {
 		t.Fatalf("unexpected response: status=%d body=%q", response.Code, response.Body.String())
+	}
+}
+
+func TestDataMapperWritesUseSessionOverlayOnly(t *testing.T) {
+	dataStore, err := store.New(t.TempDir())
+	if err != nil {
+		t.Fatalf("create store: %v", err)
+	}
+	if err := dataStore.SaveSpecMeta(domain.SpecMeta{ID: "customer-spec", Name: "Customers"}); err != nil {
+		t.Fatalf("save spec: %v", err)
+	}
+	if err := dataStore.SaveCollection("customer-spec", domain.Collection{ID: "customers", Name: "Customers"}); err != nil {
+		t.Fatalf("save collection: %v", err)
+	}
+	manager := sessions.NewManager(time.Hour)
+	exec := New(dataStore, manager)
+
+	insertResponse := httptest.NewRecorder()
+	insertRequest := httptest.NewRequest(http.MethodPost, "/customers", nil)
+	output, err := exec.executeDataMapper(insertResponse, insertRequest, "customer-spec", nil, "customers", "insert", nil, map[string]any{"email": "a@example.com", "name": "Asha"})
+	if err != nil {
+		t.Fatalf("insert through mapper: %v", err)
+	}
+	sessionID := insertResponse.Header().Get(sessions.HeaderName)
+	if sessionID == "" {
+		t.Fatal("expected generated session header")
+	}
+	if output.(map[string]any)["id"] == "" {
+		t.Fatalf("expected inserted document output, got %#v", output)
+	}
+	realDocs, err := dataStore.ListDocuments("customer-spec", "customers")
+	if err != nil {
+		t.Fatalf("list real docs: %v", err)
+	}
+	if len(realDocs) != 0 {
+		t.Fatalf("expected real collection to remain unchanged, got %#v", realDocs)
+	}
+
+	filter := []resolvedFilter{{key: "email", operator: domain.ConditionOperatorEquals, value: "a@example.com"}}
+	findRequest := httptest.NewRequest(http.MethodGet, "/customers", nil)
+	findRequest.Header.Set(sessions.HeaderName, sessionID)
+	found, err := exec.executeDataMapper(httptest.NewRecorder(), findRequest, "customer-spec", nil, "customers", "findOne", filter, nil)
+	if err != nil {
+		t.Fatalf("find through session overlay: %v", err)
+	}
+	if found == nil {
+		t.Fatal("expected session overlay to contain inserted document")
+	}
+
+	isolated, err := exec.executeDataMapper(httptest.NewRecorder(), httptest.NewRequest(http.MethodGet, "/customers", nil), "customer-spec", nil, "customers", "findOne", filter, nil)
+	if err != nil {
+		t.Fatalf("find without session: %v", err)
+	}
+	if isolated != nil {
+		t.Fatalf("expected request without session to not see overlay, got %#v", isolated)
 	}
 }
 

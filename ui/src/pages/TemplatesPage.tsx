@@ -4,12 +4,15 @@ import { Link, useLocation, useNavigate, useParams } from 'react-router-dom'
 import Editor from '@monaco-editor/react'
 import { Plus, Trash2, Pencil, FileCode, X, Check, ChevronLeft, Wand2 } from 'lucide-react'
 import { specsApi, templatesApi } from '../services/api'
-import type { Operation, Template } from '../types'
+import type { Operation, SpecDetail, Template } from '../types'
 import TemplateSeedModal, { type TemplateSeed } from '../components/templates/TemplateSeedModal'
 import { apiFlowTemplateLanguage, configureTemplateEditor, prettifyTemplateBody } from '../components/editor/monacoLanguages'
 
 type FormState = { name: string; statusCode: number; body: string; headers: Record<string, string> }
 const empty = (): FormState => ({ name: '', statusCode: 200, body: '', headers: {} })
+const templatesTabPath = (specId: string) => `/specifications/${specId}?tab=templates`
+const newTemplatePath = (specId: string) => `/specifications/${specId}/templates/new`
+const editTemplatePath = (specId: string, templateId: string) => `/specifications/${specId}/templates/${templateId}/edit`
 
 function useIsDark() {
   const [isDark, setIsDark] = useState(() => document.documentElement.classList.contains('dark'))
@@ -257,31 +260,24 @@ export function TemplateEditorPage() {
       editing={editing ?? null}
       seed={seed}
       operations={spec.operations}
-      onClose={() => navigate(`/templates/${specId}`)}
+      onClose={() => navigate(templatesTabPath(specId))}
     />
   )
 }
 
-export default function TemplatesPage() {
-  const { specId } = useParams<{ specId: string }>()
+export function TemplatesPanel({ specId, spec, showHeader = true }: { specId: string; spec: SpecDetail; showHeader?: boolean }) {
   const qc = useQueryClient()
   const navigate = useNavigate()
   const [seedModalOpen, setSeedModalOpen] = useState(false)
 
-  const { data: spec, isLoading: isSpecLoading, error: specError } = useQuery({
-    queryKey: ['specs', specId],
-    queryFn: () => specsApi.get(specId!),
-    enabled: !!specId,
-  })
-
   const { data: templates = [], isLoading } = useQuery({
     queryKey: ['templates', specId],
-    queryFn: () => templatesApi.list(specId!),
+    queryFn: () => templatesApi.list(specId),
     enabled: !!specId,
   })
 
   const deleteMutation = useMutation({
-    mutationFn: (templateId: string) => templatesApi.delete(specId!, templateId),
+    mutationFn: (templateId: string) => templatesApi.delete(specId, templateId),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['templates', specId] }),
   })
 
@@ -290,44 +286,52 @@ export default function TemplatesPage() {
   }
 
   function openEdit(t: Template) {
-    navigate(`/templates/${specId}/edit/${t.id}`)
+    navigate(editTemplatePath(specId, t.id))
   }
-
-  if (isSpecLoading) return <div className="flex h-40 items-center justify-center text-sm text-slate-400">Loading…</div>
-  if (specError || !spec || !specId) return <div className="flex h-40 items-center justify-center text-sm text-red-400">Failed to load specification.</div>
 
   const operationByID = new Map(spec.operations.map(operation => [operation.id, operation]))
 
   return (
     <>
       <div className="flex h-full flex-col">
-        {/* Page header */}
-        <div className="flex min-h-14 shrink-0 items-center justify-between gap-4 border-b border-slate-200 px-6 py-3 dark:border-slate-800">
-          <div className="flex items-center gap-3">
-            <Link to="/templates" className="inline-flex items-center gap-1 text-xs text-slate-400 hover:text-slate-700 dark:hover:text-slate-200">
-              <ChevronLeft className="h-3.5 w-3.5" /> Templates
-            </Link>
-            <span className="text-slate-300 dark:text-slate-700">/</span>
-            <FileCode className="h-4 w-4 text-slate-400" />
-            <span className="text-sm font-semibold text-slate-800 dark:text-slate-100">{spec.name}</span>
-            {!isLoading && (
-              <span className="rounded bg-slate-100 px-2 py-0.5 text-xs text-slate-500 dark:bg-slate-800 dark:text-slate-400">
-                {templates.length}
-              </span>
-            )}
+        {showHeader && (
+          <div className="flex min-h-14 shrink-0 items-center justify-between gap-4 border-b border-slate-200 px-6 py-3 dark:border-slate-800">
+            <div className="flex items-center gap-3">
+              <Link to={`/specifications/${specId}`} className="inline-flex items-center gap-1 text-xs text-slate-400 hover:text-slate-700 dark:hover:text-slate-200">
+                <ChevronLeft className="h-3.5 w-3.5" /> Specification
+              </Link>
+              <span className="text-slate-300 dark:text-slate-700">/</span>
+              <FileCode className="h-4 w-4 text-slate-400" />
+              <span className="text-sm font-semibold text-slate-800 dark:text-slate-100">{spec.name}</span>
+              <span className="text-xs text-slate-400">Templates</span>
+              {!isLoading && (
+                <span className="rounded bg-slate-100 px-2 py-0.5 text-xs text-slate-500 dark:bg-slate-800 dark:text-slate-400">
+                  {templates.length}
+                </span>
+              )}
+            </div>
+            <button
+              type="button"
+              onClick={openCreate}
+              className="flex items-center gap-1.5 rounded bg-blue-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-blue-700"
+            >
+              <Plus className="h-3.5 w-3.5" /> New Template
+            </button>
           </div>
-          <button
-            type="button"
-            onClick={openCreate}
-            className="flex items-center gap-1.5 rounded bg-blue-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-blue-700"
-          >
-            <Plus className="h-3.5 w-3.5" /> New Template
-          </button>
-        </div>
+        )}
 
-        <div className="shrink-0 border-b border-amber-200 bg-amber-50 px-6 py-2 text-xs font-medium text-amber-800 dark:border-amber-900/50 dark:bg-amber-950/30 dark:text-amber-200">
-          Editing draft; changes go live after release and publish.
-        </div>
+        {!showHeader && (
+          <div className="flex min-h-14 shrink-0 flex-wrap items-center justify-between gap-3 border-b border-slate-200 px-4 py-3 dark:border-slate-800 sm:px-6">
+            <div className="flex items-center gap-3">
+              <FileCode className="h-4 w-4 text-slate-400" />
+              <span className="text-sm font-semibold text-slate-800 dark:text-slate-100">Templates</span>
+              {!isLoading && <span className="rounded bg-slate-100 px-2 py-0.5 text-xs text-slate-500 dark:bg-slate-800 dark:text-slate-400">{templates.length}</span>}
+            </div>
+            <button type="button" onClick={openCreate} className="flex items-center gap-1.5 rounded bg-blue-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-blue-700">
+              <Plus className="h-3.5 w-3.5" /> New Template
+            </button>
+          </div>
+        )}
 
         {/* List */}
         <div className="flex-1 overflow-y-auto">
@@ -344,7 +348,7 @@ export default function TemplatesPage() {
           ) : (
             <div>
               {/* Table header */}
-              <div className="grid grid-cols-[minmax(0,1fr)_minmax(180px,0.7fr)_64px_120px_auto] items-center gap-4 border-b border-slate-200 bg-slate-50 px-6 py-2 text-[11px] font-semibold uppercase tracking-wider text-slate-400 dark:border-slate-800 dark:bg-slate-900">
+              <div className="hidden grid-cols-[minmax(0,1fr)_minmax(180px,0.7fr)_64px_120px_auto] items-center gap-4 border-b border-slate-200 bg-slate-50 px-6 py-2 text-[11px] font-semibold uppercase tracking-wider text-slate-400 dark:border-slate-800 dark:bg-slate-900 md:grid">
                 <span>Name</span>
                 <span>Scope</span>
                 <span>Status</span>
@@ -355,7 +359,7 @@ export default function TemplatesPage() {
                 {templates.map(t => (
                   <div
                     key={t.id}
-                    className="grid grid-cols-[minmax(0,1fr)_minmax(180px,0.7fr)_64px_120px_auto] items-center gap-4 px-6 py-3 hover:bg-slate-50 dark:hover:bg-slate-900/50"
+                    className="grid gap-3 px-4 py-3 hover:bg-slate-50 dark:hover:bg-slate-900/50 md:grid-cols-[minmax(0,1fr)_minmax(180px,0.7fr)_64px_120px_auto] md:items-center md:gap-4 md:px-6"
                   >
                     <div>
                       <button
@@ -425,7 +429,7 @@ export default function TemplatesPage() {
           operations={spec.operations}
           onSelect={seed => {
             setSeedModalOpen(false)
-            navigate(`/templates/${specId}/new`, { state: { seed } })
+            navigate(newTemplatePath(specId), { state: { seed } })
           }}
           onClose={() => {
             setSeedModalOpen(false)
@@ -434,4 +438,19 @@ export default function TemplatesPage() {
       )}
     </>
   )
+}
+
+export default function TemplatesPage() {
+  const { specId } = useParams<{ specId: string }>()
+
+  const { data: spec, isLoading: isSpecLoading, error: specError } = useQuery({
+    queryKey: ['specs', specId],
+    queryFn: () => specsApi.get(specId!),
+    enabled: !!specId,
+  })
+
+  if (isSpecLoading) return <div className="flex h-40 items-center justify-center text-sm text-slate-400">Loading…</div>
+  if (specError || !spec || !specId) return <div className="flex h-40 items-center justify-center text-sm text-red-400">Failed to load specification.</div>
+
+  return <TemplatesPanel specId={specId} spec={spec} />
 }

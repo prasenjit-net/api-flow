@@ -17,6 +17,7 @@ import (
 	"github.com/prasenjit-net/api-flow/internal/api"
 	"github.com/prasenjit-net/api-flow/internal/config"
 	"github.com/prasenjit-net/api-flow/internal/registry"
+	"github.com/prasenjit-net/api-flow/internal/sessions"
 	"github.com/prasenjit-net/api-flow/internal/store"
 	"github.com/prasenjit-net/api-flow/internal/version"
 )
@@ -26,6 +27,7 @@ type Options struct {
 	UIFS     fs.FS
 	Store    store.Store
 	Registry *registry.Registry
+	Sessions *sessions.Manager
 }
 
 type App struct {
@@ -48,7 +50,7 @@ func (a *App) Handler() http.Handler {
 	r.Use(middleware.Heartbeat("/_health"))
 	r.Use(requestLogger(a.logger))
 
-	r.Mount("/_api", api.NewRouter(a.cfg, a.logger, a.build, a.options.Store, a.options.Registry))
+	r.Mount("/_api", api.NewRouter(a.cfg, a.logger, a.build, a.options.Store, a.options.Registry, a.options.Sessions))
 
 	// UI is served under /_ui. In dev mode the Vite server already knows the
 	// base path, so we proxy the full path unchanged. In production the dist
