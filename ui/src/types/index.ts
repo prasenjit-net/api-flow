@@ -56,6 +56,7 @@ export interface TemplateExample {
 
 export interface Script {
   id: string
+  specId: string
   name: string
   description: string
   source: string
@@ -84,6 +85,79 @@ export interface CollectionDocument {
   id: string
   collectionId: string
   data: Record<string, unknown>
+  createdAt: string
+  updatedAt: string
+}
+
+export interface SessionEvent {
+  id: string
+  sessionId: string
+  type: 'insert' | 'update' | 'upsert' | 'delete'
+  specId: string
+  collectionId: string
+  documentId: string
+  filters?: Array<{ key: string; operator: string; value: unknown }>
+  body?: Record<string, unknown>
+  before?: CollectionDocument
+  after?: CollectionDocument
+  createdAt: string
+}
+
+export interface SessionSummary {
+  id: string
+  createdAt: string
+  lastSeenAt: string
+  expiresAt: string
+  eventCount: number
+  affectedSpecs: string[]
+  affectedTargets: string[]
+}
+
+export interface SessionDataGroup {
+  specId: string
+  collectionId: string
+  documents: CollectionDocument[]
+}
+
+export interface SessionDetail {
+  id: string
+  createdAt: string
+  lastSeenAt: string
+  expiresAt: string
+  events: SessionEvent[]
+  summary: SessionSummary
+  data: SessionDataGroup[]
+}
+
+export interface SessionPersistSummary {
+  sessionId: string
+  inserted: number
+  updated: number
+  deleted: number
+}
+
+export interface TestPlan {
+  id: string
+  name: string
+  description: string
+  createdAt: string
+  updatedAt: string
+}
+
+export interface TestPlanRequest {
+  id: string
+  planId: string
+  name: string
+  description: string
+  specId: string
+  operationId: string
+  method: string
+  path: string
+  pathParams: Record<string, string>
+  queryParams: Record<string, string>
+  headers: Record<string, string>
+  body: string
+  position: number
   createdAt: string
   updatedAt: string
 }

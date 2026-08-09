@@ -16,29 +16,29 @@ import {
 import StatCard from '../components/StatCard'
 import MethodBadge from '../components/MethodBadge'
 import { scriptsApi, specsApi, templatesApi, tracesApi } from '../services/api'
-import type { Operation, SpecDetail, SpecMeta, Template, TraceSummary } from '../types'
+import type { Operation, Script, SpecDetail, SpecMeta, Template, TraceSummary } from '../types'
 
 interface OverviewStats {
   specs: SpecMeta[]
   specDetails: SpecDetail[]
   templates: Template[]
-  scripts: Awaited<ReturnType<typeof scriptsApi.list>>
+  scripts: Script[]
   traces: TraceSummary[]
 }
 
 async function loadOverview(): Promise<OverviewStats> {
   const specs = await specsApi.list()
-  const [specDetails, templateGroups, scripts, traces] = await Promise.all([
+  const [specDetails, templateGroups, scriptGroups, traces] = await Promise.all([
     Promise.all(specs.map(spec => specsApi.get(spec.id))),
     Promise.all(specs.map(spec => templatesApi.list(spec.id))),
-    scriptsApi.list(),
+    Promise.all(specs.map(spec => scriptsApi.list(spec.id))),
     tracesApi.list(),
   ])
   return {
     specs,
     specDetails,
     templates: templateGroups.flat(),
-    scripts,
+    scripts: scriptGroups.flat(),
     traces,
   }
 }
@@ -79,6 +79,8 @@ export default function OverviewPage() {
   const operationCount = operations.length
   const flowCount = operations.filter(operation => operation.hasFlow).length
   const tracingEnabledCount = specs.filter(spec => spec.tracingEnabled).length
+  const publishedSpecCount = specs.filter(spec => spec.publishedVersion > 0).length
+  const dirtySpecCount = specs.filter(spec => spec.draftDirty).length
   const operationScopedTemplateCount = templates.filter(template => template.operationId).length
   const reusableTemplateCount = templates.length - operationScopedTemplateCount
   const successfulTraces = traces.filter(trace => !trace.error && trace.statusCode > 0 && trace.statusCode < 400).length
@@ -133,10 +135,10 @@ export default function OverviewPage() {
             </div>
 
             <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-              <StatCard label="Specifications" value={String(specs.length)} description={`${tracingEnabledCount} tracing enabled`} icon={FileJson} tone="bg-blue-50 text-blue-600 dark:bg-blue-950/30 dark:text-blue-300" />
+              <StatCard label="Specifications" value={String(specs.length)} description={`${publishedSpecCount} published · ${dirtySpecCount} need release`} icon={FileJson} tone="bg-blue-50 text-blue-600 dark:bg-blue-950/30 dark:text-blue-300" />
               <StatCard label="Operations" value={String(operationCount)} description={`${flowCount} with flows · ${percent(flowCount, operationCount)} coverage`} icon={Route} tone="bg-emerald-50 text-emerald-600 dark:bg-emerald-950/30 dark:text-emerald-300" />
               <StatCard label="Templates" value={String(templates.length)} description={`${reusableTemplateCount} reusable · ${operationScopedTemplateCount} operation scoped`} icon={FileCode} tone="bg-violet-50 text-violet-600 dark:bg-violet-950/30 dark:text-violet-300" />
-              <StatCard label="Scripts" value={String(scripts.length)} description="Global Starlark scripts" icon={Code2} tone="bg-amber-50 text-amber-600 dark:bg-amber-950/30 dark:text-amber-300" />
+              <StatCard label="Scripts" value={String(scripts.length)} description="Spec-scoped Starlark scripts" icon={Code2} tone="bg-amber-50 text-amber-600 dark:bg-amber-950/30 dark:text-amber-300" />
               <StatCard label="Traces" value={String(traces.length)} description={`${successfulTraces} successful · ${failedTraces} failed`} icon={Activity} tone="bg-sky-50 text-sky-600 dark:bg-sky-950/30 dark:text-sky-300" />
               <StatCard label="Average trace" value={formatDuration(avgTraceDuration)} description="Mean saved request duration" icon={Clock3} tone="bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-300" />
               <StatCard label="Flow coverage" value={percent(flowCount, operationCount)} description={`${operationCount - flowCount} operations without flows`} icon={GitBranch} tone="bg-teal-50 text-teal-600 dark:bg-teal-950/30 dark:text-teal-300" />
@@ -144,7 +146,7 @@ export default function OverviewPage() {
             </div>
 
             <div className="grid gap-6 xl:grid-cols-[1.25fr_0.75fr]">
-              <section className="rounded-2xl border border-slate-200 bg-white shadow-sm dark:border-slate-800 dark:bg-slate-900">
+              <section className="rounded-lg border border-slate-200 bg-white shadow-sm dark:border-slate-800 dark:bg-slate-900">
                 <div className="flex items-center justify-between border-b border-slate-200 px-5 py-3.5 dark:border-slate-800">
                   <div>
                     <h2 className="text-sm font-semibold text-slate-800 dark:text-slate-100">Specifications</h2>
@@ -161,6 +163,18 @@ export default function OverviewPage() {
                         <div className="min-w-0">
                           <div className="flex items-center gap-2">
                             <span className="truncate text-sm font-semibold text-slate-800 dark:text-slate-100">{spec.name}</span>
+                            <span className={`shrink-0 rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide ${
+                              spec.publishedVersion > 0
+                                ? 'bg-blue-50 text-blue-700 dark:bg-blue-950/30 dark:text-blue-300'
+                                : 'bg-slate-100 text-slate-400 dark:bg-slate-800'
+                            }`}>
+                              {spec.publishedVersion > 0 ? `published v${spec.publishedVersion}` : 'unpublished'}
+                            </span>
+                            {spec.draftDirty && (
+                              <span className="shrink-0 rounded-full bg-amber-50 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-amber-700 dark:bg-amber-950/30 dark:text-amber-300">
+                                needs release
+                              </span>
+                            )}
                             {spec.tracingEnabled ? (
                               <span className="inline-flex items-center gap-1 rounded-full bg-emerald-50 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-emerald-700 dark:bg-emerald-950/30 dark:text-emerald-300">
                                 <CheckCircle2 className="h-3 w-3" /> tracing
@@ -186,7 +200,7 @@ export default function OverviewPage() {
                 )}
               </section>
 
-              <section className="rounded-2xl border border-slate-200 bg-white shadow-sm dark:border-slate-800 dark:bg-slate-900">
+              <section className="rounded-lg border border-slate-200 bg-white shadow-sm dark:border-slate-800 dark:bg-slate-900">
                 <div className="border-b border-slate-200 px-5 py-3.5 dark:border-slate-800">
                   <h2 className="text-sm font-semibold text-slate-800 dark:text-slate-100">Operations by method</h2>
                   <p className="mt-0.5 text-xs text-slate-500">Distribution across uploaded OpenAPI specs.</p>
@@ -211,7 +225,7 @@ export default function OverviewPage() {
               </section>
             </div>
 
-            <section className="rounded-2xl border border-slate-200 bg-white shadow-sm dark:border-slate-800 dark:bg-slate-900">
+            <section className="rounded-lg border border-slate-200 bg-white shadow-sm dark:border-slate-800 dark:bg-slate-900">
               <div className="flex items-center justify-between border-b border-slate-200 px-5 py-3.5 dark:border-slate-800">
                 <div>
                   <h2 className="text-sm font-semibold text-slate-800 dark:text-slate-100">Recent traces</h2>
@@ -231,18 +245,24 @@ export default function OverviewPage() {
                       const spec = specs.find(candidate => candidate.id === trace.specId)
                       const failed = trace.error || trace.statusCode >= 400
                       return (
-                        <Link key={trace.id} to={`/traces/${trace.id}`} className="grid grid-cols-[120px_1fr_120px_120px_180px] items-center gap-4 px-5 py-3 hover:bg-slate-50 dark:hover:bg-slate-800/40">
-                          <MethodBadge method={trace.method} />
+                        <Link key={trace.id} to={`/traces/${trace.id}`} className="grid gap-3 px-5 py-3 hover:bg-slate-50 dark:hover:bg-slate-800/40 md:grid-cols-[120px_1fr_90px_120px_120px_180px] md:items-center md:gap-4">
+                          <div className="flex items-center justify-between gap-2 md:block">
+                            <MethodBadge method={trace.method} />
+                            <span className="text-xs text-slate-400 md:hidden">{new Date(trace.startedAt).toLocaleString()}</span>
+                          </div>
                           <div className="min-w-0">
                             <p className="truncate text-sm font-medium text-slate-800 dark:text-slate-100">{spec?.name ?? trace.specId}</p>
                             <p className="truncate font-mono text-xs text-slate-400">{trace.operationId}</p>
                           </div>
+                          <span className="w-fit rounded bg-slate-100 px-1.5 py-0.5 text-[10px] font-semibold text-slate-500 dark:bg-slate-800 dark:text-slate-400">
+                            {trace.releaseVersion ? `v${trace.releaseVersion}` : 'draft'}
+                          </span>
                           <span className={`inline-flex items-center gap-1 text-xs font-semibold ${failed ? 'text-red-500' : 'text-emerald-600 dark:text-emerald-400'}`}>
                             {failed ? <AlertTriangle className="h-3.5 w-3.5" /> : <CheckCircle2 className="h-3.5 w-3.5" />}
                             {trace.statusCode || '—'}
                           </span>
                           <span className="text-xs text-slate-500">{formatDuration(trace.durationMs)}</span>
-                          <span className="text-xs text-slate-400">{new Date(trace.startedAt).toLocaleString()}</span>
+                          <span className="hidden text-xs text-slate-400 md:block">{new Date(trace.startedAt).toLocaleString()}</span>
                         </Link>
                       )
                     })}

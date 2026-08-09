@@ -107,7 +107,7 @@ export default function TemplateNodeModal({
           )}
 
           {templates.length === 0 && (
-            <p className="text-xs text-slate-400">No templates yet. Create one on the Templates page first.</p>
+            <p className="text-xs text-slate-400">No templates yet. Create one from this specification first.</p>
           )}
         </div>
 

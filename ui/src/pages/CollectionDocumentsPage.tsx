@@ -152,7 +152,7 @@ export default function CollectionDocumentsPage() {
   return (
     <div className="flex h-full flex-col">
       <div className="flex min-h-14 shrink-0 flex-col gap-2 border-b border-slate-200 px-6 py-3 dark:border-slate-800">
-        <Link to={`/specifications/${specId}/collections`} className="inline-flex w-fit items-center gap-1.5 text-xs font-medium text-slate-500 hover:text-slate-900 dark:text-slate-400 dark:hover:text-slate-100">
+        <Link to={`/specifications/${specId}?tab=collections`} className="inline-flex w-fit items-center gap-1.5 text-xs font-medium text-slate-500 hover:text-slate-900 dark:text-slate-400 dark:hover:text-slate-100">
           <ChevronLeft className="h-3.5 w-3.5" />
           Back to collections
         </Link>

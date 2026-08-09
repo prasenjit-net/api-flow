@@ -159,10 +159,10 @@ func (h *Handler) validateDraftRelease(specID string) ([]domain.FlowValidationEr
 				if node.Data.ScriptID == "" {
 					continue
 				}
-				if _, err := h.store.GetScript(node.Data.ScriptID); err == store.ErrNotFound {
+				if _, err := h.store.GetScript(specID, node.Data.ScriptID); err == store.ErrNotFound {
 					result = append(result, domain.FlowValidationError{
 						Code:    "script_not_found",
-						Message: "selected Starlark script does not exist",
+						Message: "selected Starlark script does not exist in this specification",
 						NodeID:  node.ID,
 						Field:   "data.scriptId",
 					})

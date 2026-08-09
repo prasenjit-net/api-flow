@@ -1,4 +1,4 @@
-import type { Collection, CollectionDocument, Flow, FlowValidationError, MetaResponse, ReleaseBundle, Script, SpecDetail, SpecMeta, Template, TemplateExample, Trace, TraceSummary } from '../types'
+import type { Collection, CollectionDocument, Flow, FlowValidationError, MetaResponse, ReleaseBundle, Script, SessionDetail, SessionPersistSummary, SessionSummary, SpecDetail, SpecMeta, Template, TemplateExample, TestPlan, TestPlanRequest, Trace, TraceSummary } from '../types'
 
 const BASE = import.meta.env.VITE_API_BASE || '/_api'
 const DEFAULT_REQUEST_TIMEOUT_MS = 30000
@@ -148,14 +148,14 @@ export const templatesApi = {
 }
 
 export const scriptsApi = {
-  list: () => request<Script[]>('/scripts'),
-  get: (id: string) => request<Script>(`/scripts/${id}`),
-  create: (script: Pick<Script, 'name' | 'description' | 'source'>) =>
-    jsonRequest<Script>('/scripts', 'POST', script),
-  update: (id: string, script: Pick<Script, 'name' | 'description' | 'source'>) =>
-    jsonRequest<Script>(`/scripts/${id}`, 'PUT', script),
-  delete: (id: string) =>
-    requestVoid(`/scripts/${id}`, { method: 'DELETE' }),
+  list: (specId: string) => request<Script[]>(`/specs/${specId}/scripts`),
+  get: (specId: string, id: string) => request<Script>(`/specs/${specId}/scripts/${id}`),
+  create: (specId: string, script: Pick<Script, 'name' | 'description' | 'source'>) =>
+    jsonRequest<Script>(`/specs/${specId}/scripts`, 'POST', script),
+  update: (specId: string, id: string, script: Pick<Script, 'name' | 'description' | 'source'>) =>
+    jsonRequest<Script>(`/specs/${specId}/scripts/${id}`, 'PUT', script),
+  delete: (specId: string, id: string) =>
+    requestVoid(`/specs/${specId}/scripts/${id}`, { method: 'DELETE' }),
 }
 
 export const collectionsApi = {
@@ -182,6 +182,30 @@ export const documentsApi = {
     requestVoid(`/specs/${specId}/collections/${collectionId}/documents/${id}`, { method: 'DELETE' }),
 }
 
+type TestPlanPayload = Pick<TestPlan, 'name' | 'description'>
+type TestPlanRequestPayload = Omit<TestPlanRequest, 'id' | 'planId' | 'createdAt' | 'updatedAt'>
+
+export const testGroundApi = {
+  listPlans: () => request<TestPlan[]>('/test-ground/plans'),
+  getPlan: (planId: string) => request<TestPlan>(`/test-ground/plans/${planId}`),
+  createPlan: (plan: TestPlanPayload) =>
+    jsonRequest<TestPlan>('/test-ground/plans', 'POST', plan),
+  updatePlan: (planId: string, plan: TestPlanPayload) =>
+    jsonRequest<TestPlan>(`/test-ground/plans/${planId}`, 'PUT', plan),
+  deletePlan: (planId: string) =>
+    requestVoid(`/test-ground/plans/${planId}`, { method: 'DELETE' }),
+  listRequests: (planId: string) =>
+    request<TestPlanRequest[]>(`/test-ground/plans/${planId}/requests`),
+  getRequest: (planId: string, requestId: string) =>
+    request<TestPlanRequest>(`/test-ground/plans/${planId}/requests/${requestId}`),
+  createRequest: (planId: string, savedRequest: TestPlanRequestPayload) =>
+    jsonRequest<TestPlanRequest>(`/test-ground/plans/${planId}/requests`, 'POST', savedRequest),
+  updateRequest: (planId: string, requestId: string, savedRequest: TestPlanRequestPayload) =>
+    jsonRequest<TestPlanRequest>(`/test-ground/plans/${planId}/requests/${requestId}`, 'PUT', savedRequest),
+  deleteRequest: (planId: string, requestId: string) =>
+    requestVoid(`/test-ground/plans/${planId}/requests/${requestId}`, { method: 'DELETE' }),
+}
+
 export const tracesApi = {
   list: (filters?: { specId?: string; operationId?: string }) => {
     const params = new URLSearchParams()
@@ -195,4 +219,13 @@ export const tracesApi = {
     requestVoid(`/traces/${id}`, { method: 'DELETE' }),
   deleteAll: () =>
     requestVoid('/traces', { method: 'DELETE' }),
+}
+
+export const sessionsApi = {
+  list: () => request<SessionSummary[]>('/sessions'),
+  get: (id: string) => request<SessionDetail>(`/sessions/${id}`),
+  delete: (id: string) =>
+    requestVoid(`/sessions/${id}`, { method: 'DELETE' }),
+  persist: (id: string) =>
+    jsonRequest<SessionPersistSummary>(`/sessions/${id}/persist`, 'POST', {}),
 }

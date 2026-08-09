@@ -19,7 +19,7 @@ type FileStore struct {
 }
 
 func New(dir string) (*FileStore, error) {
-	for _, sub := range []string{filepath.Join(dir, "specs"), filepath.Join(dir, "scripts"), filepath.Join(dir, "traces")} {
+	for _, sub := range []string{filepath.Join(dir, "specs"), filepath.Join(dir, "traces"), filepath.Join(dir, "test-plans")} {
 		if err := os.MkdirAll(sub, 0o755); err != nil {
 			return nil, fmt.Errorf("create data dir %s: %w", sub, err)
 		}
@@ -30,6 +30,9 @@ func New(dir string) (*FileStore, error) {
 	}
 	if err := store.migrateGlobalTemplates(); err != nil {
 		return nil, fmt.Errorf("migrate global templates: %w", err)
+	}
+	if err := store.migrateGlobalScripts(); err != nil {
+		return nil, fmt.Errorf("migrate global scripts: %w", err)
 	}
 	if err := store.migrateGlobalCollections(); err != nil {
 		return nil, fmt.Errorf("migrate global collections: %w", err)
@@ -60,6 +63,10 @@ func (s *FileStore) draftTemplatesDir(specID string) string {
 	return filepath.Join(s.draftDir(specID), "templates")
 }
 
+func (s *FileStore) draftScriptsDir(specID string) string {
+	return filepath.Join(s.draftDir(specID), "scripts")
+}
+
 func (s *FileStore) draftCollectionsDir(specID string) string {
 	return filepath.Join(s.draftDir(specID), "collections")
 }
@@ -72,13 +79,25 @@ func (s *FileStore) releasesDir(specID string) string {
 	return filepath.Join(s.specDir(specID), "releases")
 }
 
+func (s *FileStore) testPlansDir() string {
+	return filepath.Join(s.dir, "test-plans")
+}
+
+func (s *FileStore) testPlanDir(planID string) string {
+	return filepath.Join(s.testPlansDir(), planID)
+}
+
+func (s *FileStore) testPlanRequestsDir(planID string) string {
+	return filepath.Join(s.testPlanDir(planID), "requests")
+}
+
 func (s *FileStore) releasePath(specID string, version int) string {
 	return filepath.Join(s.releasesDir(specID), fmt.Sprintf("v%d.json", version))
 }
 
 func (s *FileStore) SaveSpecMeta(meta domain.SpecMeta) error {
 	dir := s.specDir(meta.ID)
-	for _, sub := range []string{s.draftFlowsDir(meta.ID), s.draftTemplatesDir(meta.ID), s.draftCollectionsDir(meta.ID), s.liveCollectionsDir(meta.ID), s.releasesDir(meta.ID)} {
+	for _, sub := range []string{s.draftFlowsDir(meta.ID), s.draftTemplatesDir(meta.ID), s.draftScriptsDir(meta.ID), s.draftCollectionsDir(meta.ID), s.liveCollectionsDir(meta.ID), s.releasesDir(meta.ID)} {
 		if err := os.MkdirAll(sub, 0o755); err != nil {
 			return err
 		}
@@ -217,20 +236,22 @@ func (s *FileStore) DeleteTemplate(specID, id string) error {
 	return err
 }
 
-func (s *FileStore) SaveScript(script domain.Script) error {
-	if err := os.MkdirAll(filepath.Join(s.dir, "scripts"), 0o755); err != nil {
+func (s *FileStore) SaveScript(specID string, script domain.Script) error {
+	dir := s.draftScriptsDir(specID)
+	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return err
 	}
-	return writeJSON(filepath.Join(s.dir, "scripts", script.ID+".json"), script)
+	script.SpecID = specID
+	return writeJSON(filepath.Join(dir, script.ID+".json"), script)
 }
 
-func (s *FileStore) GetScript(id string) (domain.Script, error) {
+func (s *FileStore) GetScript(specID, id string) (domain.Script, error) {
 	var script domain.Script
-	return script, readJSON(filepath.Join(s.dir, "scripts", id+".json"), &script)
+	return script, readJSON(filepath.Join(s.draftScriptsDir(specID), id+".json"), &script)
 }
 
-func (s *FileStore) ListScripts() ([]domain.Script, error) {
-	dir := filepath.Join(s.dir, "scripts")
+func (s *FileStore) ListScripts(specID string) ([]domain.Script, error) {
+	dir := s.draftScriptsDir(specID)
 	entries, err := os.ReadDir(dir)
 	if err != nil {
 		if os.IsNotExist(err) {
@@ -252,8 +273,8 @@ func (s *FileStore) ListScripts() ([]domain.Script, error) {
 	return result, nil
 }
 
-func (s *FileStore) DeleteScript(id string) error {
-	err := os.Remove(filepath.Join(s.dir, "scripts", id+".json"))
+func (s *FileStore) DeleteScript(specID, id string) error {
+	err := os.Remove(filepath.Join(s.draftScriptsDir(specID), id+".json"))
 	if os.IsNotExist(err) {
 		return nil
 	}
@@ -350,6 +371,94 @@ func (s *FileStore) DeleteDocument(specID, collectionID, id string) error {
 	return err
 }
 
+func (s *FileStore) SaveTestPlan(plan domain.TestPlan) error {
+	dir := s.testPlanDir(plan.ID)
+	if err := os.MkdirAll(filepath.Join(dir, "requests"), 0o755); err != nil {
+		return err
+	}
+	return writeJSON(filepath.Join(dir, "meta.json"), plan)
+}
+
+func (s *FileStore) GetTestPlan(id string) (domain.TestPlan, error) {
+	var plan domain.TestPlan
+	return plan, readJSON(filepath.Join(s.testPlanDir(id), "meta.json"), &plan)
+}
+
+func (s *FileStore) ListTestPlans() ([]domain.TestPlan, error) {
+	entries, err := os.ReadDir(s.testPlansDir())
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil, nil
+		}
+		return nil, err
+	}
+	var result []domain.TestPlan
+	for _, entry := range entries {
+		if !entry.IsDir() {
+			continue
+		}
+		var plan domain.TestPlan
+		if err := readJSON(filepath.Join(s.testPlanDir(entry.Name()), "meta.json"), &plan); err != nil {
+			continue
+		}
+		result = append(result, plan)
+	}
+	return result, nil
+}
+
+func (s *FileStore) DeleteTestPlan(id string) error {
+	err := os.RemoveAll(s.testPlanDir(id))
+	if os.IsNotExist(err) {
+		return nil
+	}
+	return err
+}
+
+func (s *FileStore) SaveTestPlanRequest(planID string, request domain.TestPlanRequest) error {
+	dir := s.testPlanRequestsDir(planID)
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return err
+	}
+	request.PlanID = planID
+	return writeJSON(filepath.Join(dir, request.ID+".json"), request)
+}
+
+func (s *FileStore) GetTestPlanRequest(planID, id string) (domain.TestPlanRequest, error) {
+	var request domain.TestPlanRequest
+	return request, readJSON(filepath.Join(s.testPlanRequestsDir(planID), id+".json"), &request)
+}
+
+func (s *FileStore) ListTestPlanRequests(planID string) ([]domain.TestPlanRequest, error) {
+	dir := s.testPlanRequestsDir(planID)
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil, nil
+		}
+		return nil, err
+	}
+	var result []domain.TestPlanRequest
+	for _, entry := range entries {
+		if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".json") {
+			continue
+		}
+		var request domain.TestPlanRequest
+		if err := readJSON(filepath.Join(dir, entry.Name()), &request); err != nil {
+			continue
+		}
+		result = append(result, request)
+	}
+	return result, nil
+}
+
+func (s *FileStore) DeleteTestPlanRequest(planID, id string) error {
+	err := os.Remove(filepath.Join(s.testPlanRequestsDir(planID), id+".json"))
+	if os.IsNotExist(err) {
+		return nil
+	}
+	return err
+}
+
 func (s *FileStore) SaveTrace(trace domain.Trace) error {
 	if err := os.MkdirAll(filepath.Join(s.dir, "traces"), 0o755); err != nil {
 		return err
@@ -439,7 +548,7 @@ func (s *FileStore) CreateRelease(specID, notes string) (domain.ReleaseBundle, e
 	if err != nil {
 		return domain.ReleaseBundle{}, err
 	}
-	scripts, err := s.referencedScripts(flows)
+	scripts, err := s.referencedScripts(specID, flows)
 	if err != nil {
 		return domain.ReleaseBundle{}, err
 	}
@@ -567,7 +676,7 @@ func (s *FileStore) DraftContentHash(specID string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	scripts, err := s.referencedScripts(flows)
+	scripts, err := s.referencedScripts(specID, flows)
 	if err != nil {
 		return "", err
 	}
@@ -590,7 +699,7 @@ func (s *FileStore) DraftContentHash(specID string) (string, error) {
 	return hex.EncodeToString(sum[:]), nil
 }
 
-func (s *FileStore) referencedScripts(flows []domain.Flow) ([]domain.Script, error) {
+func (s *FileStore) referencedScripts(specID string, flows []domain.Flow) ([]domain.Script, error) {
 	ids := map[string]struct{}{}
 	for _, flow := range flows {
 		for _, node := range flow.Nodes {
@@ -601,7 +710,7 @@ func (s *FileStore) referencedScripts(flows []domain.Flow) ([]domain.Script, err
 	}
 	scripts := make([]domain.Script, 0, len(ids))
 	for id := range ids {
-		script, err := s.GetScript(id)
+		script, err := s.GetScript(specID, id)
 		if err != nil {
 			return nil, err
 		}
@@ -686,6 +795,7 @@ func (s *FileStore) migrateSpecDraftLayout() error {
 			filepath.Join(s.specDir(specID), "spec.raw"):    s.draftSpecFilePath(specID),
 			filepath.Join(s.specDir(specID), "flows"):       s.draftFlowsDir(specID),
 			filepath.Join(s.specDir(specID), "templates"):   s.draftTemplatesDir(specID),
+			filepath.Join(s.specDir(specID), "scripts"):     s.draftScriptsDir(specID),
 			filepath.Join(s.specDir(specID), "collections"): s.draftCollectionsDir(specID),
 		}
 		for oldPath, newPath := range moves {
@@ -693,7 +803,7 @@ func (s *FileStore) migrateSpecDraftLayout() error {
 				return err
 			}
 		}
-		for _, dir := range []string{s.draftFlowsDir(specID), s.draftTemplatesDir(specID), s.draftCollectionsDir(specID), s.liveCollectionsDir(specID), s.releasesDir(specID)} {
+		for _, dir := range []string{s.draftFlowsDir(specID), s.draftTemplatesDir(specID), s.draftScriptsDir(specID), s.draftCollectionsDir(specID), s.liveCollectionsDir(specID), s.releasesDir(specID)} {
 			if err := os.MkdirAll(dir, 0o755); err != nil {
 				return err
 			}
@@ -765,6 +875,73 @@ func (s *FileStore) migrateGlobalCollections() error {
 		}
 	}
 	return nil
+}
+
+func (s *FileStore) migrateGlobalScripts() error {
+	legacyDir := filepath.Join(s.dir, "scripts")
+	entries, err := os.ReadDir(legacyDir)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil
+		}
+		return err
+	}
+
+	references, err := s.scriptReferences()
+	if err != nil {
+		return err
+	}
+	backupDir := filepath.Join(s.dir, "legacy-scripts-migrated")
+	for _, entry := range entries {
+		if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".json") {
+			continue
+		}
+		scriptID := strings.TrimSuffix(entry.Name(), ".json")
+		var script domain.Script
+		sourcePath := filepath.Join(legacyDir, entry.Name())
+		if err := readJSON(sourcePath, &script); err != nil {
+			return err
+		}
+		for specID := range references[scriptID] {
+			script.SpecID = specID
+			if err := s.SaveScript(specID, script); err != nil {
+				return err
+			}
+		}
+		if err := os.MkdirAll(backupDir, 0o755); err != nil {
+			return err
+		}
+		if err := os.Rename(sourcePath, filepath.Join(backupDir, entry.Name())); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (s *FileStore) scriptReferences() (map[string]map[string]bool, error) {
+	result := map[string]map[string]bool{}
+	specs, err := s.ListSpecMeta()
+	if err != nil {
+		return nil, err
+	}
+	for _, spec := range specs {
+		flows, err := s.ListFlows(spec.ID)
+		if err != nil {
+			return nil, err
+		}
+		for _, flow := range flows {
+			for _, node := range flow.Nodes {
+				if node.Type != domain.NodeTypeStarlark || node.Data.ScriptID == "" {
+					continue
+				}
+				if result[node.Data.ScriptID] == nil {
+					result[node.Data.ScriptID] = map[string]bool{}
+				}
+				result[node.Data.ScriptID][spec.ID] = true
+			}
+		}
+	}
+	return result, nil
 }
 
 func (s *FileStore) collectionReferences() (map[string]map[string]bool, error) {

@@ -26,10 +26,10 @@ type Store interface {
 	ListTemplates(specID string) ([]domain.Template, error)
 	DeleteTemplate(specID, id string) error
 
-	SaveScript(script domain.Script) error
-	GetScript(id string) (domain.Script, error)
-	ListScripts() ([]domain.Script, error)
-	DeleteScript(id string) error
+	SaveScript(specID string, script domain.Script) error
+	GetScript(specID, id string) (domain.Script, error)
+	ListScripts(specID string) ([]domain.Script, error)
+	DeleteScript(specID, id string) error
 
 	SaveCollection(specID string, collection domain.Collection) error
 	GetCollection(specID, id string) (domain.Collection, error)
@@ -40,6 +40,16 @@ type Store interface {
 	GetDocument(specID, collectionID, id string) (domain.Document, error)
 	ListDocuments(specID, collectionID string) ([]domain.Document, error)
 	DeleteDocument(specID, collectionID, id string) error
+
+	SaveTestPlan(plan domain.TestPlan) error
+	GetTestPlan(id string) (domain.TestPlan, error)
+	ListTestPlans() ([]domain.TestPlan, error)
+	DeleteTestPlan(id string) error
+
+	SaveTestPlanRequest(planID string, request domain.TestPlanRequest) error
+	GetTestPlanRequest(planID, id string) (domain.TestPlanRequest, error)
+	ListTestPlanRequests(planID string) ([]domain.TestPlanRequest, error)
+	DeleteTestPlanRequest(planID, id string) error
 
 	CreateRelease(specID, notes string) (domain.ReleaseBundle, error)
 	ListReleases(specID string) ([]domain.ReleaseBundle, error)

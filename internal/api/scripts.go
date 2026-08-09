@@ -16,7 +16,11 @@ import (
 )
 
 func (h *Handler) ListScripts(w http.ResponseWriter, r *http.Request) {
-	scripts, err := h.store.ListScripts()
+	specID := chi.URLParam(r, "id")
+	if !h.specExists(w, r, specID) {
+		return
+	}
+	scripts, err := h.store.ListScripts(specID)
 	if err != nil {
 		respondError(w, r, http.StatusInternalServerError, err.Error())
 		return
@@ -31,7 +35,11 @@ func (h *Handler) ListScripts(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) GetScript(w http.ResponseWriter, r *http.Request) {
-	script, err := h.store.GetScript(chi.URLParam(r, "scriptId"))
+	specID := chi.URLParam(r, "id")
+	if !h.specExists(w, r, specID) {
+		return
+	}
+	script, err := h.store.GetScript(specID, chi.URLParam(r, "scriptId"))
 	if err == store.ErrNotFound {
 		respondError(w, r, http.StatusNotFound, "script not found")
 		return
@@ -44,6 +52,10 @@ func (h *Handler) GetScript(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) CreateScript(w http.ResponseWriter, r *http.Request) {
+	specID := chi.URLParam(r, "id")
+	if !h.specExists(w, r, specID) {
+		return
+	}
 	var script domain.Script
 	if err := json.NewDecoder(r.Body).Decode(&script); err != nil {
 		respondError(w, r, http.StatusBadRequest, "invalid JSON")
@@ -54,9 +66,10 @@ func (h *Handler) CreateScript(w http.ResponseWriter, r *http.Request) {
 	}
 	now := time.Now().UTC()
 	script.ID = uuid.New().String()
+	script.SpecID = specID
 	script.CreatedAt = now
 	script.UpdatedAt = now
-	if err := h.store.SaveScript(script); err != nil {
+	if err := h.store.SaveScript(specID, script); err != nil {
 		respondError(w, r, http.StatusInternalServerError, err.Error())
 		return
 	}
@@ -64,8 +77,12 @@ func (h *Handler) CreateScript(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) UpdateScript(w http.ResponseWriter, r *http.Request) {
+	specID := chi.URLParam(r, "id")
+	if !h.specExists(w, r, specID) {
+		return
+	}
 	scriptID := chi.URLParam(r, "scriptId")
-	existing, err := h.store.GetScript(scriptID)
+	existing, err := h.store.GetScript(specID, scriptID)
 	if err == store.ErrNotFound {
 		respondError(w, r, http.StatusNotFound, "script not found")
 		return
@@ -83,9 +100,10 @@ func (h *Handler) UpdateScript(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	script.ID = existing.ID
+	script.SpecID = specID
 	script.CreatedAt = existing.CreatedAt
 	script.UpdatedAt = time.Now().UTC()
-	if err := h.store.SaveScript(script); err != nil {
+	if err := h.store.SaveScript(specID, script); err != nil {
 		respondError(w, r, http.StatusInternalServerError, err.Error())
 		return
 	}
@@ -93,35 +111,32 @@ func (h *Handler) UpdateScript(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) DeleteScript(w http.ResponseWriter, r *http.Request) {
+	specID := chi.URLParam(r, "id")
+	if !h.specExists(w, r, specID) {
+		return
+	}
 	scriptID := chi.URLParam(r, "scriptId")
-	if _, err := h.store.GetScript(scriptID); err == store.ErrNotFound {
+	if _, err := h.store.GetScript(specID, scriptID); err == store.ErrNotFound {
 		respondError(w, r, http.StatusNotFound, "script not found")
 		return
 	} else if err != nil {
 		respondError(w, r, http.StatusInternalServerError, err.Error())
 		return
 	}
-	specs, err := h.store.ListSpecMeta()
+	flows, err := h.store.ListFlows(specID)
 	if err != nil {
 		respondError(w, r, http.StatusInternalServerError, err.Error())
 		return
 	}
 	var references []map[string]string
-	for _, spec := range specs {
-		flows, err := h.store.ListFlows(spec.ID)
-		if err != nil {
-			respondError(w, r, http.StatusInternalServerError, err.Error())
-			return
-		}
-		for _, flow := range flows {
-			for _, node := range flow.Nodes {
-				if node.Type == domain.NodeTypeStarlark && node.Data.ScriptID == scriptID {
-					references = append(references, map[string]string{
-						"specId":      spec.ID,
-						"operationId": flow.OperationID,
-						"nodeId":      node.ID,
-					})
-				}
+	for _, flow := range flows {
+		for _, node := range flow.Nodes {
+			if node.Type == domain.NodeTypeStarlark && node.Data.ScriptID == scriptID {
+				references = append(references, map[string]string{
+					"specId":      specID,
+					"operationId": flow.OperationID,
+					"nodeId":      node.ID,
+				})
 			}
 		}
 	}
@@ -132,7 +147,7 @@ func (h *Handler) DeleteScript(w http.ResponseWriter, r *http.Request) {
 		}))
 		return
 	}
-	if err := h.store.DeleteScript(scriptID); err != nil {
+	if err := h.store.DeleteScript(specID, scriptID); err != nil {
 		respondError(w, r, http.StatusInternalServerError, err.Error())
 		return
 	}

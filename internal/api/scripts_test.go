@@ -18,7 +18,7 @@ import (
 
 func TestCreateScriptValidatesRunFunction(t *testing.T) {
 	router, _ := scriptTestRouter(t)
-	request := httptest.NewRequest(http.MethodPost, "/scripts", strings.NewReader(`{
+	request := httptest.NewRequest(http.MethodPost, "/specs/spec-one/scripts", strings.NewReader(`{
 		"name": "Missing run",
 		"source": "value = 1"
 	}`))
@@ -33,7 +33,7 @@ func TestCreateScriptValidatesRunFunction(t *testing.T) {
 
 func TestCreateAndListScripts(t *testing.T) {
 	router, _ := scriptTestRouter(t)
-	request := httptest.NewRequest(http.MethodPost, "/scripts", strings.NewReader(`{
+	request := httptest.NewRequest(http.MethodPost, "/specs/spec-one/scripts", strings.NewReader(`{
 		"name": "Calculate",
 		"description": "Calculates a value",
 		"source": "def run(input):\n    return {\"value\": input.get(\"value\")}\n"
@@ -44,26 +44,23 @@ func TestCreateAndListScripts(t *testing.T) {
 		t.Fatalf("expected 201, got %d: %s", response.Code, response.Body.String())
 	}
 
-	listRequest := httptest.NewRequest(http.MethodGet, "/scripts", nil)
+	listRequest := httptest.NewRequest(http.MethodGet, "/specs/spec-one/scripts", nil)
 	listResponse := httptest.NewRecorder()
 	router.ServeHTTP(listResponse, listRequest)
 	var scripts []domain.Script
 	if err := json.NewDecoder(listResponse.Body).Decode(&scripts); err != nil {
 		t.Fatalf("decode scripts: %v", err)
 	}
-	if len(scripts) != 1 || scripts[0].Name != "Calculate" {
+	if len(scripts) != 1 || scripts[0].Name != "Calculate" || scripts[0].SpecID != "spec-one" {
 		t.Fatalf("unexpected scripts: %#v", scripts)
 	}
 }
 
 func TestDeleteScriptRejectsFlowReference(t *testing.T) {
 	router, dataStore := scriptTestRouter(t)
-	script := domain.Script{ID: "used-script", Name: "Used", Source: "def run(input):\n    return input\n"}
-	if err := dataStore.SaveScript(script); err != nil {
+	script := domain.Script{ID: "used-script", SpecID: "spec-one", Name: "Used", Source: "def run(input):\n    return input\n"}
+	if err := dataStore.SaveScript("spec-one", script); err != nil {
 		t.Fatalf("save script: %v", err)
-	}
-	if err := dataStore.SaveSpecMeta(domain.SpecMeta{ID: "spec-one", Name: "Spec One"}); err != nil {
-		t.Fatalf("save spec: %v", err)
 	}
 	if err := dataStore.SaveFlow(domain.Flow{
 		SpecID:      "spec-one",
@@ -77,7 +74,7 @@ func TestDeleteScriptRejectsFlowReference(t *testing.T) {
 		t.Fatalf("save flow: %v", err)
 	}
 
-	request := httptest.NewRequest(http.MethodDelete, "/scripts/"+script.ID, bytes.NewReader(nil))
+	request := httptest.NewRequest(http.MethodDelete, "/specs/spec-one/scripts/"+script.ID, bytes.NewReader(nil))
 	response := httptest.NewRecorder()
 	router.ServeHTTP(response, request)
 	if response.Code != http.StatusConflict {
@@ -90,6 +87,9 @@ func scriptTestRouter(t *testing.T) (http.Handler, *store.FileStore) {
 	dataStore, err := store.New(t.TempDir())
 	if err != nil {
 		t.Fatalf("create store: %v", err)
+	}
+	if err := dataStore.SaveSpecMeta(domain.SpecMeta{ID: "spec-one", Name: "Spec One"}); err != nil {
+		t.Fatalf("save spec: %v", err)
 	}
 	router := NewRouter(
 		config.Default(),
