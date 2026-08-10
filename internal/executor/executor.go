@@ -708,7 +708,7 @@ func renderString(tmplStr string, ctx map[string]any) (string, error) {
 			if !exists {
 				return nil
 			}
-			return value
+			return templatePathValue(value)
 		},
 	}
 	t, err := template.New("").Funcs(funcs).Parse(normalizeTemplateShorthand(tmplStr))
@@ -721,6 +721,23 @@ func renderString(tmplStr string, ctx map[string]any) (string, error) {
 	}
 	return buf.String(), nil
 }
+
+// templatePathValue keeps scalar substitutions unchanged, while making a
+// direct structured-path substitution valid JSON instead of Go's map format.
+func templatePathValue(value any) any {
+	switch value.(type) {
+	case map[string]any, map[string]string, []any, []string:
+		encoded, err := json.Marshal(value)
+		if err == nil {
+			return jsonTemplateValue(encoded)
+		}
+	}
+	return value
+}
+
+type jsonTemplateValue []byte
+
+func (value jsonTemplateValue) String() string { return string(value) }
 
 func normalizeTemplateShorthand(tmplStr string) string {
 	return shorthandTemplatePathPattern.ReplaceAllString(tmplStr, `{{path "$1"}}`)

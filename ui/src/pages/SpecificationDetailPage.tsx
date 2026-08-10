@@ -371,7 +371,7 @@ export default function SpecificationDetailPage() {
                 {releases.map(release => {
                   const isRollback = !spec.publishedSnapshot && spec.publishedVersion > 0 && !release.snapshot && release.version < spec.publishedVersion
                   return (
-                    <div key={release.version} className="grid gap-3 px-3 py-3 sm:grid-cols-[80px_1fr_170px_220px] sm:items-center">
+                    <div key={release.snapshot ? 'snapshot' : release.version} className="grid gap-3 px-3 py-3 lg:grid-cols-[160px_minmax(0,1fr)_170px_220px] lg:items-center">
                       <div className="flex items-center gap-2">
                         <span className="text-xs font-semibold text-slate-700 dark:text-slate-200">{release.snapshot ? 'SNAPSHOT' : `v${release.version}`}</span>
                         {release.published && <StatusPill tone="emerald">Published</StatusPill>}

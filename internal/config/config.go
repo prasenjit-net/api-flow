@@ -16,6 +16,7 @@ type Config struct {
 	Logging LoggingConfig `mapstructure:"logging" yaml:"logging"`
 	UI      UIConfig      `mapstructure:"ui" yaml:"ui"`
 	Data    DataConfig    `mapstructure:"data" yaml:"data"`
+	MCP     MCPConfig     `mapstructure:"mcp" yaml:"mcp"`
 }
 
 type DataConfig struct {
@@ -47,6 +48,15 @@ type UIConfig struct {
 	DevProxyURL string `mapstructure:"devProxyURL" yaml:"devProxyURL"`
 }
 
+type MCPConfig struct {
+	HTTP MCPHTTPConfig `mapstructure:"http" yaml:"http"`
+}
+
+type MCPHTTPConfig struct {
+	Enabled     bool   `mapstructure:"enabled" yaml:"enabled"`
+	BearerToken string `mapstructure:"bearerToken" yaml:"bearerToken"`
+}
+
 func Default() Config {
 	return Config{
 		App: AppConfig{
@@ -73,6 +83,7 @@ func Default() Config {
 		Data: DataConfig{
 			Dir: "data",
 		},
+		MCP: MCPConfig{},
 	}
 }
 
@@ -101,6 +112,8 @@ func SetDefaults(v *viper.Viper) {
 	v.SetDefault("logging.format", defaults.Logging.Format)
 	v.SetDefault("ui.devProxyURL", defaults.UI.DevProxyURL)
 	v.SetDefault("data.dir", defaults.Data.Dir)
+	v.SetDefault("mcp.http.enabled", defaults.MCP.HTTP.Enabled)
+	v.SetDefault("mcp.http.bearerToken", defaults.MCP.HTTP.BearerToken)
 }
 
 func Load(v *viper.Viper) (Config, error) {
@@ -169,6 +182,11 @@ logging:
 
 ui:
   devProxyURL: http://localhost:5173
+
+mcp:
+  http:
+    enabled: false
+    bearerToken: ""
 `
 
 const DefaultEnvExample = `APP_ENV=development
@@ -178,4 +196,6 @@ APP_SERVER_PORT=8080
 APP_LOGGING_LEVEL=debug
 APP_LOGGING_FORMAT=text
 APP_UI_DEV_PROXY_URL=http://localhost:5173
+APP_MCP_HTTP_ENABLED=false
+APP_MCP_HTTP_BEARER_TOKEN=
 `

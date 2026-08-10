@@ -8,17 +8,19 @@ import (
 
 	"github.com/prasenjit-net/api-flow/internal/config"
 	"github.com/prasenjit-net/api-flow/internal/registry"
+	"github.com/prasenjit-net/api-flow/internal/service"
 	"github.com/prasenjit-net/api-flow/internal/sessions"
 	"github.com/prasenjit-net/api-flow/internal/store"
 	"github.com/prasenjit-net/api-flow/internal/version"
 )
 
 type Handler struct {
-	config   config.Config
-	version  version.Info
-	store    store.Store
-	registry *registry.Registry
-	sessions *sessions.Manager
+	config    config.Config
+	version   version.Info
+	store     store.Store
+	registry  *registry.Registry
+	sessions  *sessions.Manager
+	workspace *service.Workspace
 }
 
 type metaResponse struct {
@@ -35,7 +37,7 @@ func NewHandler(cfg config.Config, build version.Info, s store.Store, reg *regis
 	if len(managers) > 0 {
 		manager = managers[0]
 	}
-	return &Handler{config: cfg, version: build, store: s, registry: reg, sessions: manager}
+	return &Handler{config: cfg, version: build, store: s, registry: reg, sessions: manager, workspace: service.New(cfg, s, reg, manager)}
 }
 
 func (h *Handler) Meta(w http.ResponseWriter, r *http.Request) {

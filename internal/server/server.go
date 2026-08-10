@@ -28,6 +28,7 @@ type Options struct {
 	Store    store.Store
 	Registry *registry.Registry
 	Sessions *sessions.Manager
+	MCP      http.Handler
 }
 
 type App struct {
@@ -51,6 +52,9 @@ func (a *App) Handler() http.Handler {
 	r.Use(requestLogger(a.logger))
 
 	r.Mount("/_api", api.NewRouter(a.cfg, a.logger, a.build, a.options.Store, a.options.Registry, a.options.Sessions))
+	if a.options.MCP != nil {
+		r.Mount("/mcp", a.options.MCP)
+	}
 
 	// UI is served under /_ui. In dev mode the Vite server already knows the
 	// base path, so we proxy the full path unchanged. In production the dist

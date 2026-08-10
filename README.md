@@ -77,6 +77,19 @@ make lint       # go vet
 make lint-ui    # eslint for the React app
 ```
 
+## MCP Server
+
+Run API Flow as a local Model Context Protocol server with:
+
+```bash
+./build/api-flow mcp
+```
+
+The server exposes specifications, design assets, releases, sessions, traces,
+and sanitized effective configuration to MCP clients. See [docs/mcp.md](docs/mcp.md)
+for stdio client setup, optional authenticated Streamable HTTP, tool groups,
+and safety behavior.
+
 ## Production Build
 
 ```bash

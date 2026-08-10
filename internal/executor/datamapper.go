@@ -13,8 +13,9 @@ import (
 )
 
 // executeDataMapper performs the requested collection operation. Query filters
-// are AND-combined; update/upsert/delete act on the first matching document,
-// findMany is the only operation that returns more than one.
+// are AND-combined; update/upsert/delete act on the first matching document.
+// Read and write operations expose only document data to the flow: findMany
+// returns it as a list under data and single-document operations as an object.
 func (e *Executor) executeDataMapper(w http.ResponseWriter, r *http.Request, specID string, bundle *domain.ReleaseBundle, collectionID, operation string, filters []resolvedFilter, body map[string]any) (any, error) {
 	if !e.collectionExists(specID, bundle, collectionID) {
 		return nil, fmt.Errorf("collection %q not found", collectionID)
@@ -63,17 +64,19 @@ func (e *Executor) executeDataMapper(w http.ResponseWriter, r *http.Request, spe
 		if err != nil {
 			return nil, err
 		}
-		results := make([]map[string]any, 0, len(docs))
+		// Keep collection results in the common dynamic-list representation used
+		// by mapping resolution, templates, traces, and Starlark conversion.
+		results := make([]any, 0, len(docs))
 		for _, doc := range docs {
 			matched, err := matchesFilters(doc.Data, filters)
 			if err != nil {
 				return nil, err
 			}
 			if matched {
-				results = append(results, documentOutput(doc))
+				results = append(results, cloneMap(doc.Data))
 			}
 		}
-		return results, nil
+		return map[string]any{"data": results}, nil
 
 	case "update":
 		docs, err := e.listEffectiveDocuments(r, specID, collectionID)
@@ -114,7 +117,6 @@ func (e *Executor) executeDataMapper(w http.ResponseWriter, r *http.Request, spe
 			return nil, err
 		}
 		now := time.Now().UTC()
-		created := !found
 		var before *domain.Document
 		if !found {
 			doc = domain.Document{ID: uuid.New().String(), CollectionID: collectionID, Data: map[string]any{}, CreatedAt: now}
@@ -136,9 +138,7 @@ func (e *Executor) executeDataMapper(w http.ResponseWriter, r *http.Request, spe
 		}); err != nil {
 			return nil, err
 		}
-		output := documentOutput(doc)
-		output["created"] = created
-		return output, nil
+		return documentOutput(doc), nil
 
 	case "delete":
 		docs, err := e.listEffectiveDocuments(r, specID, collectionID)
@@ -232,11 +232,7 @@ func mergeInto(target, updates map[string]any) {
 
 func documentOutput(doc domain.Document) map[string]any {
 	return map[string]any{
-		"id":           doc.ID,
-		"collectionId": doc.CollectionID,
-		"data":         doc.Data,
-		"createdAt":    doc.CreatedAt,
-		"updatedAt":    doc.UpdatedAt,
+		"data": cloneMap(doc.Data),
 	}
 }
 
