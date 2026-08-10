@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { X } from 'lucide-react'
 import type { Mapping, Script } from '../../types'
-import MappingRows from './MappingRows'
+import MappingRows, { type MappingSourceHint } from './MappingRows'
 import { emptyMapping, isCompleteMapping } from './mappingUtils'
 
 interface Props {
@@ -9,6 +9,7 @@ interface Props {
   scriptId: string
   mappings: Mapping[]
   scripts: Script[]
+  sourceHints?: MappingSourceHint[]
   onSave: (name: string, scriptId: string, mappings: Mapping[]) => void
   onClose: () => void
 }
@@ -18,6 +19,7 @@ export default function StarlarkNodeModal({
   scriptId: initialScriptId,
   mappings: initialMappings,
   scripts,
+  sourceHints = [],
   onSave,
   onClose,
 }: Props) {
@@ -56,7 +58,7 @@ export default function StarlarkNodeModal({
 
           <div>
             <p className="mb-2 text-xs font-medium text-slate-600 dark:text-slate-400">Mapped inputs</p>
-            <MappingRows mappings={mappings} onChange={setMappings} sourceLabel="Source path / value" sourcePlaceholder="request.body.amount" keyPlaceholder="amount" addLabel="Add input" />
+            <MappingRows mappings={mappings} onChange={setMappings} sourceLabel="Source path / value" sourcePlaceholder="request.body.amount" keyPlaceholder="amount" addLabel="Add input" sourceHints={sourceHints} />
           </div>
 
           {script && <pre className="max-h-40 overflow-hidden rounded border border-slate-200 bg-slate-50 p-3 font-mono text-[11px] leading-relaxed text-slate-500 dark:border-slate-700 dark:bg-slate-800/60 dark:text-slate-400">{script.source.slice(0, 600)}{script.source.length > 600 ? '…' : ''}</pre>}

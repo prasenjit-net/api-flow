@@ -24,6 +24,15 @@ info:
 paths:
   /widgets:
     get:
+      parameters:
+        - name: page
+          in: query
+          schema:
+            type: integer
+        - name: X-Tenant-ID
+          in: header
+          schema:
+            type: string
       responses:
         '200':
           description: Found
@@ -33,6 +42,19 @@ paths:
                 id: widget-1
                 name: First widget
     post:
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                name:
+                  type: string
+                profile:
+                  type: object
+                  properties:
+                    tier:
+                      type: string
       responses:
         '201':
           description: Created
@@ -40,6 +62,17 @@ paths:
             application/json:
               example:
                 id: widget-2
+  /widgets/{widgetId}:
+    parameters:
+      - name: widgetId
+        in: path
+        required: true
+        schema:
+          type: string
+    get:
+      responses:
+        '200':
+          description: Found
 `
 
 func TestListTemplatesFiltersByOperationAndKeepsReusableTemplates(t *testing.T) {
@@ -95,6 +128,43 @@ func TestListResponseExamplesExtractsOpenAPIResponseData(t *testing.T) {
 	}
 	if !strings.Contains(examples[0].Body, `"widget-1"`) {
 		t.Fatalf("expected formatted example body, got %q", examples[0].Body)
+	}
+}
+
+func TestGetSpecReturnsOperationInputHints(t *testing.T) {
+	router, _ := templateTestRouter(t)
+	request := httptest.NewRequest(http.MethodGet, "/specs/widgets", nil)
+	response := httptest.NewRecorder()
+	router.ServeHTTP(response, request)
+	if response.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", response.Code, response.Body.String())
+	}
+
+	var detail specDetailResponse
+	if err := json.NewDecoder(response.Body).Decode(&detail); err != nil {
+		t.Fatalf("decode spec detail: %v", err)
+	}
+	operations := make(map[string]domain.Operation, len(detail.Operations))
+	for _, operation := range detail.Operations {
+		operations[operation.ID] = operation
+	}
+
+	getWidgets := operations["get_widgets"]
+	if !stringSliceContains(getWidgets.InputHints.Query, "page") {
+		t.Fatalf("expected query hint page, got %#v", getWidgets.InputHints.Query)
+	}
+	if !stringSliceContains(getWidgets.InputHints.Headers, "x-tenant-id") {
+		t.Fatalf("expected normalized header hint x-tenant-id, got %#v", getWidgets.InputHints.Headers)
+	}
+
+	postWidgets := operations["post_widgets"]
+	if !stringSliceContains(postWidgets.InputHints.Body, "name") || !stringSliceContains(postWidgets.InputHints.Body, "profile.tier") {
+		t.Fatalf("expected nested body hints, got %#v", postWidgets.InputHints.Body)
+	}
+
+	getWidget := operations["get_widgets_widgetId"]
+	if !stringSliceContains(getWidget.InputHints.Path, "widgetId") {
+		t.Fatalf("expected path hint widgetId, got %#v", getWidget.InputHints.Path)
 	}
 }
 
@@ -155,4 +225,13 @@ func templateTestRouter(t *testing.T) (http.Handler, *store.FileStore) {
 		nil,
 	)
 	return router, dataStore
+}
+
+func stringSliceContains(values []string, want string) bool {
+	for _, value := range values {
+		if value == want {
+			return true
+		}
+	}
+	return false
 }

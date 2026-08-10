@@ -11,5 +11,5 @@ export const queryFieldPattern = /^[a-z0-9][a-z0-9_-]*(\.[a-z0-9][a-z0-9_-]*)*$/
 export function isCompleteMapping(mapping: Mapping, keyPattern: RegExp = mappingKeyPattern) {
   if (!keyPattern.test(mapping.key.trim())) return false
   const type = mapping.type ?? 'context'
-  return type === 'constant' || !!mapping.source?.trim()
+  return type === 'constant' || type === 'random' || type === 'fake' || type === 'relativeTime' || !!mapping.source?.trim()
 }

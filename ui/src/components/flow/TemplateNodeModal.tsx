@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { X } from 'lucide-react'
 import type { Mapping, Template } from '../../types'
-import MappingRows from './MappingRows'
+import MappingRows, { type MappingSourceHint } from './MappingRows'
 import { emptyMapping, isCompleteMapping } from './mappingUtils'
 
 interface Props {
@@ -9,6 +9,7 @@ interface Props {
   templateId: string
   mappings: Mapping[]
   templates: Template[]
+  sourceHints?: MappingSourceHint[]
   onSave: (name: string, templateId: string, mappings: Mapping[]) => void
   onClose: () => void
 }
@@ -18,6 +19,7 @@ export default function TemplateNodeModal({
   templateId: initialTemplateId,
   mappings: initialMappings,
   templates,
+  sourceHints = [],
   onSave,
   onClose,
 }: Props) {
@@ -79,7 +81,7 @@ export default function TemplateNodeModal({
                 <p className="mt-0.5 text-[11px] text-slate-400">Mappings add convenience variables; full request and nodes context is always available.</p>
               </div>
             </div>
-            <MappingRows mappings={mappings} onChange={setMappings} sourceLabel="Source path / value" sourcePlaceholder="nodes.normalize-user.user_id" keyPlaceholder="user_id" addLabel="Add alias" />
+            <MappingRows mappings={mappings} onChange={setMappings} sourceLabel="Source path / value" sourcePlaceholder="nodes.normalize-user.user_id" keyPlaceholder="user_id" addLabel="Add alias" sourceHints={sourceHints} />
           </div>
 
           {selected && (

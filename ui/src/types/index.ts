@@ -16,6 +16,14 @@ export interface Operation {
   summary: string
   description: string
   hasFlow: boolean
+  inputHints: OperationInputHints
+}
+
+export interface OperationInputHints {
+  path?: string[]
+  query?: string[]
+  headers?: string[]
+  body?: string[]
 }
 
 export interface SpecDetail extends SpecMeta {
@@ -65,11 +73,16 @@ export interface Script {
 }
 
 export interface Mapping {
-  type?: 'context' | 'constant'
+  type?: 'context' | 'constant' | 'random' | 'fake' | 'relativeTime'
   source?: string
   key: string
   value?: unknown
   valueType?: 'string' | 'number' | 'boolean' | 'null'
+  generator?: string
+  format?: string
+  length?: number
+  min?: number
+  max?: number
   operator?: ConditionOperator
 }
 

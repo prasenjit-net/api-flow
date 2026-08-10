@@ -20,7 +20,7 @@ import '@xyflow/react/dist/style.css'
 import { AlertCircle, ChevronLeft, Save, Plus, CheckCircle2 } from 'lucide-react'
 
 import { ApiError, flowsApi, scriptsApi, templatesApi, specsApi, collectionsApi } from '../services/api'
-import type { Condition, DataMapperOperation, Flow, FlowEdge, FlowValidationError, Mapping } from '../types'
+import type { Condition, DataMapperOperation, Flow, FlowEdge, FlowValidationError, Mapping, Operation } from '../types'
 import StartNode from '../components/flow/StartNode'
 import EndNode from '../components/flow/EndNode'
 import ContextMapperNode from '../components/flow/ContextMapperNode'
@@ -33,6 +33,7 @@ import DataMapperNode from '../components/flow/DataMapperNode'
 import DataMapperNodeModal from '../components/flow/DataMapperNodeModal'
 import EdgeConditionModal from '../components/flow/EdgeConditionModal'
 import { summarizeCondition } from '../components/flow/edgeConditions'
+import type { MappingSourceHint } from '../components/flow/MappingRows'
 
 const nodeTypes = {
   start: StartNode,
@@ -135,6 +136,10 @@ function FlowEditor() {
 
   const [nodes, setNodes, onNodesChange] = useNodesState(defaultNodes)
   const [edges, setEdges, onEdgesChange] = useEdgesState<Edge<FlowEdgeData>>([])
+  const sourceHints = useMemo(
+    () => buildMappingSourceHints(operation, nodes, edges, editingNode?.id),
+    [operation, nodes, edges, editingNode?.id],
+  )
 
   useEffect(() => {
     if (!flowData) return
@@ -459,6 +464,7 @@ function FlowEditor() {
         <ContextMapperModal
           name={editingNode.name}
           mappings={editingNode.mappings}
+          sourceHints={sourceHints}
           onSave={(name, mappings) => { updateNodeData(editingNode.id, { name, mappings }); setEditingNode(null) }}
           onClose={() => setEditingNode(null)}
         />
@@ -469,6 +475,7 @@ function FlowEditor() {
           templateId={editingNode.templateId}
           mappings={editingNode.mappings}
           templates={templates}
+          sourceHints={sourceHints}
           onSave={(name, templateId, mappings) => {
             updateNodeData(editingNode.id, { name, templateId, mappings, _templates: templates })
             setEditingNode(null)
@@ -482,6 +489,7 @@ function FlowEditor() {
           scriptId={editingNode.scriptId}
           mappings={editingNode.mappings}
           scripts={scripts}
+          sourceHints={sourceHints}
           onSave={(name, scriptId, mappings) => {
             updateNodeData(editingNode.id, { name, scriptId, mappings, _scripts: scripts })
             setEditingNode(null)
@@ -497,6 +505,7 @@ function FlowEditor() {
           queryMappings={editingNode.queryMappings}
           bodyMappings={editingNode.bodyMappings}
           collections={collections}
+          sourceHints={sourceHints}
           onSave={(name, collectionId, operation, queryMappings, bodyMappings) => {
             updateNodeData(editingNode.id, { name, collectionId, operation, queryMappings, bodyMappings, _collections: collections })
             setEditingNode(null)
@@ -521,6 +530,95 @@ function nextNodeName(prefix: string, nodes: Node[]): string {
   let suffix = 1
   while (names.has(`${prefix}-${suffix}`)) suffix++
   return `${prefix}-${suffix}`
+}
+
+function buildMappingSourceHints(
+  operation: Operation | undefined,
+  nodes: Node[],
+  edges: Edge<FlowEdgeData>[],
+  currentNodeId: string | undefined,
+): MappingSourceHint[] {
+  const hints: MappingSourceHint[] = []
+  const add = (value: string, label: string, group: string) => {
+    if (!value) return
+    hints.push({ value, label, group })
+  }
+
+  add('request.method', 'HTTP method', 'Request')
+  add('request.url', 'Full request URL', 'Request')
+  add('request.body', 'Request body', 'Request')
+  operationPathParams(operation?.path).forEach(name => add(`request.path.${name}`, 'Path parameter', 'Request'))
+  operation?.inputHints.path?.forEach(name => add(`request.path.${name}`, 'Path parameter', 'Request'))
+  operation?.inputHints.query?.forEach(name => add(`request.query.${name}`, 'Query parameter', 'Request'))
+  operation?.inputHints.headers?.forEach(name => add(`request.headers.${name.toLowerCase()}`, 'Header', 'Request'))
+  operation?.inputHints.body?.forEach(path => add(`request.body.${path}`, 'Body field', 'Request'))
+
+  const upstream = currentNodeId ? upstreamNodeIds(currentNodeId, edges) : new Set<string>()
+  for (const node of nodes) {
+    if (node.id === currentNodeId || node.type === 'start' || node.type === 'end') continue
+    if (currentNodeId && upstream.size > 0 && !upstream.has(node.id)) continue
+
+    const data = node.data as {
+      name?: string
+      mappings?: Mapping[]
+      operation?: DataMapperOperation
+      bodyMappings?: Mapping[]
+    }
+    const nodeName = data.name?.trim()
+    if (!nodeName) continue
+
+    if (node.type === 'contextMapper') {
+      for (const mapping of data.mappings ?? []) {
+        if (mapping.key) add(`nodes.${nodeName}.${mapping.key}`, 'Mapped value', 'Previous node')
+      }
+    } else if (node.type === 'dataMapper') {
+      add(`nodes.${nodeName}.id`, 'Document id', 'Previous node')
+      add(`nodes.${nodeName}.data`, 'Document data', 'Previous node')
+      for (const mapping of data.bodyMappings ?? []) {
+        if (mapping.key) add(`nodes.${nodeName}.data.${mapping.key}`, 'Document field', 'Previous node')
+      }
+      if (data.operation === 'upsert') add(`nodes.${nodeName}.created`, 'Upsert created flag', 'Previous node')
+      if (data.operation === 'delete') add(`nodes.${nodeName}.deleted`, 'Delete result flag', 'Previous node')
+    } else if (node.type === 'template') {
+      add(`nodes.${nodeName}.statusCode`, 'Response status', 'Previous node')
+      add(`nodes.${nodeName}.body`, 'Response body', 'Previous node')
+      add(`nodes.${nodeName}.headers`, 'Response headers', 'Previous node')
+    } else if (node.type === 'starlark') {
+      add(`nodes.${nodeName}`, 'Script output', 'Previous node')
+      add(`nodes.${nodeName}.value`, 'Script output field', 'Previous node')
+    }
+  }
+
+  const seen = new Set<string>()
+  return hints.filter(hint => {
+    if (seen.has(hint.value)) return false
+    seen.add(hint.value)
+    return true
+  })
+}
+
+function operationPathParams(path: string | undefined): string[] {
+  if (!path) return []
+  return Array.from(path.matchAll(/\{([^}]+)\}/g), match => match[1]).filter(Boolean)
+}
+
+function upstreamNodeIds(currentNodeId: string, edges: Edge<FlowEdgeData>[]): Set<string> {
+  const incoming = new Map<string, string[]>()
+  for (const edge of edges) {
+    const list = incoming.get(edge.target) ?? []
+    list.push(edge.source)
+    incoming.set(edge.target, list)
+  }
+
+  const result = new Set<string>()
+  const stack = [...(incoming.get(currentNodeId) ?? [])]
+  while (stack.length > 0) {
+    const nodeId = stack.pop()!
+    if (result.has(nodeId)) continue
+    result.add(nodeId)
+    stack.push(...(incoming.get(nodeId) ?? []))
+  }
+  return result
 }
 
 export default function FlowEditorPage() {

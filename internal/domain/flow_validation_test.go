@@ -87,6 +87,35 @@ func TestValidateFlowAcceptsConstantMappingsWithoutSource(t *testing.T) {
 	}
 }
 
+func TestValidateFlowAcceptsGeneratedMappingsWithoutContextSource(t *testing.T) {
+	flow := validBranchingFlow()
+	flow.Nodes[1].Data.Mappings = []Mapping{
+		{Type: "random", Generator: "uuid", Key: "request_id"},
+		{Type: "fake", Generator: "internet.email", Key: "email"},
+		{Type: "relativeTime", Source: "now+5h", Format: "rfc3339", Key: "expires_at"},
+	}
+
+	if issues := ValidateFlow(flow); len(issues) != 0 {
+		t.Fatalf("expected generated mappings to be valid, got %#v", issues)
+	}
+}
+
+func TestValidateFlowRejectsInvalidGeneratedMappings(t *testing.T) {
+	flow := validBranchingFlow()
+	flow.Nodes[1].Data.Mappings = []Mapping{
+		{Type: "random", Generator: "hex", Length: 300, Key: "token"},
+		{Type: "fake", Generator: "payment.card", Key: "card"},
+		{Type: "relativeTime", Source: "tomorrow", Key: "when"},
+	}
+
+	issues := ValidateFlow(flow)
+	for _, code := range []string{"mapping_generator_invalid", "mapping_relative_time_invalid"} {
+		if !hasValidationCode(issues, code) {
+			t.Fatalf("expected %s validation error, got %#v", code, issues)
+		}
+	}
+}
+
 func TestValidateFlowRejectsMappingKeyThatIsNotID(t *testing.T) {
 	flow := validBranchingFlow()
 	flow.Nodes[1].Data.Mappings[0].Key = "User Name"

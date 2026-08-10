@@ -1,8 +1,98 @@
+import { useId } from 'react'
 import { Plus, Trash2 } from 'lucide-react'
 import clsx from 'clsx'
 import type { Mapping } from '../../types'
 import { emptyMapping, mappingKeyPattern } from './mappingUtils'
 import { comparisonOperators } from './edgeConditions'
+
+export interface MappingSourceHint {
+  value: string
+  label?: string
+  group?: string
+}
+
+const mappingTypes: Array<{ value: NonNullable<Mapping['type']>; label: string }> = [
+  { value: 'context', label: 'Context' },
+  { value: 'constant', label: 'Constant' },
+  { value: 'random', label: 'Random' },
+  { value: 'fake', label: 'Fake' },
+  { value: 'relativeTime', label: 'Time' },
+]
+
+const randomGenerators = [
+  { value: 'uuid', label: 'UUID' },
+  { value: 'alphanumeric', label: 'Text' },
+  { value: 'alpha', label: 'Letters' },
+  { value: 'hex', label: 'Hex' },
+  { value: 'number', label: 'Number' },
+  { value: 'boolean', label: 'Boolean' },
+]
+
+const fakeGenerators = [
+  { value: 'name.fullName', label: 'Full name' },
+  { value: 'name.firstName', label: 'First name' },
+  { value: 'name.lastName', label: 'Last name' },
+  { value: 'internet.email', label: 'Email' },
+  { value: 'internet.user', label: 'Username' },
+  { value: 'internet.url', label: 'URL' },
+  { value: 'phone.number', label: 'Phone' },
+  { value: 'company.name', label: 'Company' },
+  { value: 'location.city', label: 'City' },
+  { value: 'location.country', label: 'Country' },
+  { value: 'location.street', label: 'Street' },
+  { value: 'lorem.word', label: 'Word' },
+  { value: 'lorem.sentence', label: 'Sentence' },
+]
+
+const timeFormats = [
+  { value: 'rfc3339', label: 'RFC3339' },
+  { value: 'date', label: 'Date' },
+  { value: 'time', label: 'Time' },
+  { value: 'datetime', label: 'Date time' },
+  { value: 'unix', label: 'Unix seconds' },
+  { value: 'unixMilli', label: 'Unix ms' },
+  { value: 'YYYY-MM-DD', label: 'Custom date' },
+]
+
+function typeLabel(type: NonNullable<Mapping['type']>) {
+  if (type === 'relativeTime') return 'Time'
+  return type[0].toUpperCase() + type.slice(1)
+}
+
+function typeTone(type: NonNullable<Mapping['type']>) {
+  switch (type) {
+    case 'constant':
+      return {
+        card: 'border-violet-200 bg-violet-50/45 dark:border-violet-900/60 dark:bg-violet-950/20',
+        badge: 'border-violet-200 bg-white/70 text-violet-700 dark:border-violet-800 dark:bg-violet-950/40 dark:text-violet-300',
+        control: 'border-violet-200 text-violet-800 focus:border-violet-400 focus:ring-violet-400 dark:border-violet-800 dark:text-violet-200',
+      }
+    case 'random':
+      return {
+        card: 'border-emerald-200 bg-emerald-50/45 dark:border-emerald-900/60 dark:bg-emerald-950/20',
+        badge: 'border-emerald-200 bg-white/70 text-emerald-700 dark:border-emerald-800 dark:bg-emerald-950/40 dark:text-emerald-300',
+        control: 'border-emerald-200 text-emerald-800 focus:border-emerald-400 focus:ring-emerald-400 dark:border-emerald-800 dark:text-emerald-200',
+      }
+    case 'fake':
+      return {
+        card: 'border-amber-200 bg-amber-50/45 dark:border-amber-900/60 dark:bg-amber-950/20',
+        badge: 'border-amber-200 bg-white/70 text-amber-700 dark:border-amber-800 dark:bg-amber-950/40 dark:text-amber-300',
+        control: 'border-amber-200 text-amber-800 focus:border-amber-400 focus:ring-amber-400 dark:border-amber-800 dark:text-amber-200',
+      }
+    case 'relativeTime':
+      return {
+        card: 'border-cyan-200 bg-cyan-50/45 dark:border-cyan-900/60 dark:bg-cyan-950/20',
+        badge: 'border-cyan-200 bg-white/70 text-cyan-700 dark:border-cyan-800 dark:bg-cyan-950/40 dark:text-cyan-300',
+        control: 'border-cyan-200 text-cyan-800 focus:border-cyan-400 focus:ring-cyan-400 dark:border-cyan-800 dark:text-cyan-200',
+      }
+    default:
+      return {
+        card: 'border-sky-200 bg-sky-50/45 dark:border-sky-900/60 dark:bg-sky-950/20',
+        badge: 'border-sky-200 bg-white/70 text-sky-700 dark:border-sky-800 dark:bg-sky-950/40 dark:text-sky-300',
+        control: 'border-sky-200 text-sky-800 focus:border-sky-400 focus:ring-sky-400 dark:border-sky-800 dark:text-sky-200',
+      }
+  }
+}
 
 function parseConstantValue(value: string, valueType: Mapping['valueType']) {
   switch (valueType) {
@@ -36,6 +126,7 @@ export default function MappingRows({
   showOperator = false,
   keyPattern = mappingKeyPattern,
   keyHelperText = "Use lowercase letters, numbers, - or _. Start with a letter or number.",
+  sourceHints = [],
 }: {
   mappings: Mapping[]
   onChange: (mappings: Mapping[]) => void
@@ -47,8 +138,11 @@ export default function MappingRows({
   showOperator?: boolean
   keyPattern?: RegExp
   keyHelperText?: string
+  sourceHints?: MappingSourceHint[]
 }) {
   const rows = mappings.length > 0 ? mappings : [emptyMapping()]
+  const hintListId = useId()
+  const visibleHints = sourceHints.slice(0, 12)
 
   function update(index: number, patch: Partial<Mapping>) {
     onChange(rows.map((mapping, i) => {
@@ -57,11 +151,53 @@ export default function MappingRows({
       if (patch.type === 'context') {
         delete next.value
         delete next.valueType
+        delete next.generator
+        delete next.format
+        delete next.length
+        delete next.min
+        delete next.max
       }
       if (patch.type === 'constant') {
         next.source = ''
         next.valueType = next.valueType ?? 'string'
         next.value = next.value ?? ''
+        delete next.generator
+        delete next.format
+        delete next.length
+        delete next.min
+        delete next.max
+      }
+      if (patch.type === 'random') {
+        next.source = ''
+        delete next.value
+        delete next.valueType
+        delete next.format
+        next.generator = next.generator ?? 'uuid'
+        if (next.generator === 'alphanumeric') next.length = next.length ?? 12
+        if (next.generator === 'number') {
+          next.min = next.min ?? 0
+          next.max = next.max ?? 100
+        }
+      }
+      if (patch.type === 'fake') {
+        next.source = ''
+        delete next.value
+        delete next.valueType
+        delete next.format
+        delete next.length
+        delete next.min
+        delete next.max
+        next.generator = next.generator ?? 'name.fullName'
+      }
+      if (patch.type === 'relativeTime') {
+        delete next.value
+        delete next.valueType
+        delete next.generator
+        delete next.length
+        delete next.min
+        delete next.max
+        next.source = next.source?.trim() || 'now'
+        next.format = next.format ?? 'rfc3339'
       }
       return next
     }))
@@ -69,46 +205,50 @@ export default function MappingRows({
 
   return (
     <div>
+      {sourceHints.length > 0 && (
+        <datalist id={hintListId}>
+          {sourceHints.map(hint => (
+            <option key={`${hint.group ?? 'source'}:${hint.value}`} value={hint.value}>
+              {[hint.group, hint.label].filter(Boolean).join(' · ')}
+            </option>
+          ))}
+        </datalist>
+      )}
       <div className="space-y-2">
         {rows.map((mapping, index) => {
           const type = mapping.type ?? 'context'
+          const tone = typeTone(type)
           const valueType = mapping.valueType ?? 'string'
+          const generator = mapping.generator ?? (type === 'fake' ? 'name.fullName' : 'uuid')
           const keyIsInvalid = mapping.key.trim().length > 0 && !keyPattern.test(mapping.key.trim())
           const isConstant = type === 'constant'
+          const isGenerated = type === 'random' || type === 'fake' || type === 'relativeTime'
           return (
             <div
               key={index}
-              className={clsx(
-                'rounded-lg border p-2.5 transition-colors',
-                isConstant
-                  ? 'border-violet-200 bg-violet-50/45 dark:border-violet-900/60 dark:bg-violet-950/20'
-                  : 'border-sky-200 bg-sky-50/45 dark:border-sky-900/60 dark:bg-sky-950/20',
-              )}
+              className={clsx('rounded-lg border p-2.5 transition-colors', tone.card)}
             >
               <div className="mb-2 flex items-center justify-between gap-2">
                 <div className="flex min-w-0 items-center gap-2">
                   <span
                     className={clsx(
                       'shrink-0 rounded-full border px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide',
-                      isConstant
-                        ? 'border-violet-200 bg-white/70 text-violet-700 dark:border-violet-800 dark:bg-violet-950/40 dark:text-violet-300'
-                        : 'border-sky-200 bg-white/70 text-sky-700 dark:border-sky-800 dark:bg-sky-950/40 dark:text-sky-300',
+                      tone.badge,
                     )}
                   >
-                    {isConstant ? 'Constant' : 'Context'}
+                    {typeLabel(type)}
                   </span>
                   <select
                     value={type}
                     onChange={event => update(index, { type: event.target.value as Mapping['type'] })}
                     className={clsx(
                       'w-28 rounded border bg-white px-2 py-1.5 text-xs focus:outline-none focus:ring-1 dark:bg-slate-900',
-                      isConstant
-                        ? 'border-violet-200 text-violet-800 focus:border-violet-400 focus:ring-violet-400 dark:border-violet-800 dark:text-violet-200'
-                        : 'border-sky-200 text-sky-800 focus:border-sky-400 focus:ring-sky-400 dark:border-sky-800 dark:text-sky-200',
+                      tone.control,
                     )}
                   >
-                    <option value="context">Context</option>
-                    <option value="constant">Constant</option>
+                    {mappingTypes.map(option => (
+                      <option key={option.value} value={option.value}>{option.label}</option>
+                    ))}
                   </select>
                 </div>
                 <button
@@ -166,13 +306,111 @@ export default function MappingRows({
                         />
                       )}
                     </div>
+                  ) : type === 'random' ? (
+                    <div className="grid min-w-0 gap-2 sm:grid-cols-[minmax(120px,0.8fr)_minmax(0,1fr)]">
+                      <select
+                        value={generator}
+                        onChange={event => {
+                          const nextGenerator = event.target.value
+                          update(index, {
+                            generator: nextGenerator,
+                            length: ['alphanumeric', 'alpha', 'hex'].includes(nextGenerator) ? (mapping.length ?? 12) : undefined,
+                            min: nextGenerator === 'number' ? (mapping.min ?? 0) : undefined,
+                            max: nextGenerator === 'number' ? (mapping.max ?? 100) : undefined,
+                          })
+                        }}
+                        className="min-w-0 rounded border border-emerald-200 bg-white px-2 py-1.5 text-xs text-emerald-800 focus:border-emerald-400 focus:outline-none focus:ring-1 focus:ring-emerald-400 dark:border-emerald-800 dark:bg-slate-900 dark:text-emerald-200"
+                      >
+                        {randomGenerators.map(option => (
+                          <option key={option.value} value={option.value}>{option.label}</option>
+                        ))}
+                      </select>
+                      {['alphanumeric', 'alpha', 'hex'].includes(generator) ? (
+                        <label className="grid min-w-0 grid-cols-[58px_minmax(0,1fr)] items-center gap-2">
+                          <span className="text-[11px] text-slate-500">Length</span>
+                          <input
+                            type="number"
+                            min={1}
+                            max={256}
+                            value={mapping.length ?? 12}
+                            onChange={event => update(index, { length: Number(event.target.value) })}
+                            className="min-w-0 rounded border border-emerald-200 bg-white px-2.5 py-1.5 font-mono text-xs text-slate-800 focus:border-emerald-400 focus:outline-none focus:ring-1 focus:ring-emerald-400 dark:border-emerald-800 dark:bg-slate-900 dark:text-slate-200"
+                          />
+                        </label>
+                      ) : generator === 'number' ? (
+                        <div className="grid min-w-0 grid-cols-2 gap-2">
+                          <input
+                            type="number"
+                            value={mapping.min ?? 0}
+                            onChange={event => update(index, { min: Number(event.target.value) })}
+                            placeholder="Min"
+                            className="min-w-0 rounded border border-emerald-200 bg-white px-2.5 py-1.5 font-mono text-xs text-slate-800 focus:border-emerald-400 focus:outline-none focus:ring-1 focus:ring-emerald-400 dark:border-emerald-800 dark:bg-slate-900 dark:text-slate-200"
+                          />
+                          <input
+                            type="number"
+                            value={mapping.max ?? 100}
+                            onChange={event => update(index, { max: Number(event.target.value) })}
+                            placeholder="Max"
+                            className="min-w-0 rounded border border-emerald-200 bg-white px-2.5 py-1.5 font-mono text-xs text-slate-800 focus:border-emerald-400 focus:outline-none focus:ring-1 focus:ring-emerald-400 dark:border-emerald-800 dark:bg-slate-900 dark:text-slate-200"
+                          />
+                        </div>
+                      ) : (
+                        <div className="rounded border border-emerald-200 bg-white px-2.5 py-1.5 text-xs text-emerald-700 dark:border-emerald-800 dark:bg-slate-900 dark:text-emerald-300">
+                          Generated per request
+                        </div>
+                      )}
+                    </div>
+                  ) : type === 'fake' ? (
+                    <select
+                      value={generator}
+                      onChange={event => update(index, { generator: event.target.value })}
+                      className="w-full min-w-0 rounded border border-amber-200 bg-white px-2.5 py-1.5 text-xs text-amber-800 focus:border-amber-400 focus:outline-none focus:ring-1 focus:ring-amber-400 dark:border-amber-800 dark:bg-slate-900 dark:text-amber-200"
+                    >
+                      {fakeGenerators.map(option => (
+                        <option key={option.value} value={option.value}>{option.label}</option>
+                      ))}
+                    </select>
+                  ) : type === 'relativeTime' ? (
+                    <div className="grid min-w-0 gap-2 sm:grid-cols-[minmax(0,1fr)_minmax(120px,0.7fr)]">
+                      <input
+                        value={mapping.source ?? 'now'}
+                        onChange={event => update(index, { source: event.target.value })}
+                        placeholder="now+5h or today-3d"
+                        className="min-w-0 rounded border border-cyan-200 bg-white px-2.5 py-1.5 font-mono text-xs text-slate-800 placeholder-slate-400 focus:border-cyan-400 focus:outline-none focus:ring-1 focus:ring-cyan-400 dark:border-cyan-800 dark:bg-slate-900 dark:text-slate-200"
+                      />
+                      <select
+                        value={mapping.format ?? 'rfc3339'}
+                        onChange={event => update(index, { format: event.target.value })}
+                        className="min-w-0 rounded border border-cyan-200 bg-white px-2 py-1.5 text-xs text-cyan-800 focus:border-cyan-400 focus:outline-none focus:ring-1 focus:ring-cyan-400 dark:border-cyan-800 dark:bg-slate-900 dark:text-cyan-200"
+                      >
+                        {timeFormats.map(option => (
+                          <option key={option.value} value={option.value}>{option.label}</option>
+                        ))}
+                      </select>
+                    </div>
                   ) : (
                     <input
                       value={mapping.source ?? ''}
                       onChange={event => update(index, { source: event.target.value })}
                       placeholder={sourcePlaceholder}
+                      list={sourceHints.length > 0 ? hintListId : undefined}
                       className="w-full min-w-0 rounded border border-sky-200 bg-white px-2.5 py-1.5 font-mono text-xs text-slate-800 placeholder-slate-400 focus:border-sky-400 focus:outline-none focus:ring-1 focus:ring-sky-400 dark:border-sky-800 dark:bg-slate-900 dark:text-slate-200"
                     />
+                  )}
+                  {!isConstant && !isGenerated && visibleHints.length > 0 && (
+                    <div className="mt-1.5 flex flex-wrap gap-1">
+                      {visibleHints.map(hint => (
+                        <button
+                          key={`${hint.group ?? 'source'}:${hint.value}`}
+                          type="button"
+                          onClick={() => update(index, { source: hint.value })}
+                          title={[hint.group, hint.label].filter(Boolean).join(' · ')}
+                          className="max-w-full truncate rounded border border-sky-200 bg-white px-1.5 py-0.5 font-mono text-[10px] text-sky-700 hover:border-sky-300 hover:bg-sky-50 dark:border-sky-800 dark:bg-slate-900 dark:text-sky-300 dark:hover:border-sky-700 dark:hover:bg-sky-950/30"
+                        >
+                          {hint.value}
+                        </button>
+                      ))}
+                    </div>
                   )}
                 </label>
 
