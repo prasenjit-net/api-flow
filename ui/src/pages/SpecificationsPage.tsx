@@ -126,7 +126,7 @@ export default function SpecificationsPage() {
                     <code className="break-all font-mono text-xs text-slate-500 dark:text-slate-400">{spec.contextPath}</code>
                     <div className="flex flex-wrap items-center gap-2 md:block">
                       <span className="text-xs text-slate-500 dark:text-slate-400">
-                        {spec.publishedVersion > 0 ? `v${spec.publishedVersion}` : 'none'}
+                        {spec.publishedSnapshot ? 'SNAPSHOT' : spec.publishedVersion > 0 ? `v${spec.publishedVersion}` : 'none'}
                       </span>
                       {spec.draftDirty && (
                         <span className="rounded bg-amber-50 px-1.5 py-0.5 text-[10px] font-semibold text-amber-700 dark:bg-amber-950/30 dark:text-amber-300 md:hidden">

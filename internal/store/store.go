@@ -52,10 +52,14 @@ type Store interface {
 	DeleteTestPlanRequest(planID, id string) error
 
 	CreateRelease(specID, notes string) (domain.ReleaseBundle, error)
+	CreateSnapshot(specID string) (domain.ReleaseBundle, error)
+	PromoteSnapshot(specID, notes string) (domain.ReleaseBundle, error)
 	ListReleases(specID string) ([]domain.ReleaseBundle, error)
 	GetRelease(specID string, version int) (domain.ReleaseBundle, error)
+	GetPublishedRelease(specID string) (domain.ReleaseBundle, error)
 	DeleteRelease(specID string, version int) error
 	SetPublishedVersion(specID string, version int) error
+	SetPublishedSnapshot(specID string) error
 	DraftContentHash(specID string) (string, error)
 
 	SaveTrace(trace domain.Trace) error

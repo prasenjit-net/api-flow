@@ -136,8 +136,8 @@ func (h *Handler) DeleteCollection(w http.ResponseWriter, r *http.Request) {
 		}))
 		return
 	}
-	if meta.PublishedVersion > 0 {
-		bundle, err := h.store.GetRelease(specID, meta.PublishedVersion)
+	if meta.IsPublished() {
+		bundle, err := h.store.GetPublishedRelease(specID)
 		if err != nil {
 			respondError(w, r, http.StatusInternalServerError, err.Error())
 			return

@@ -191,3 +191,77 @@ func TestPublishedReleaseCannotBeDeleted(t *testing.T) {
 		t.Fatalf("DeleteRelease error = %v, want %v", err, ErrConflict)
 	}
 }
+
+func TestSnapshotIsReplacedAndPromotedToVersionedRelease(t *testing.T) {
+	dataStore, err := New(t.TempDir())
+	if err != nil {
+		t.Fatalf("create store: %v", err)
+	}
+	const specID = "spec-one"
+	if err := dataStore.SaveSpecMeta(domain.SpecMeta{ID: specID, Name: "Spec One"}); err != nil {
+		t.Fatalf("save spec meta: %v", err)
+	}
+	if err := dataStore.SaveTemplate(specID, domain.Template{ID: "response", SpecID: specID, Name: "Response", Body: "one"}); err != nil {
+		t.Fatalf("save template: %v", err)
+	}
+	first, err := dataStore.CreateRelease(specID, "first")
+	if err != nil {
+		t.Fatalf("create release: %v", err)
+	}
+	if err := dataStore.SetPublishedVersion(specID, first.Version); err != nil {
+		t.Fatalf("publish release: %v", err)
+	}
+
+	if err := dataStore.SaveTemplate(specID, domain.Template{ID: "response", SpecID: specID, Name: "Response", Body: "snapshot one"}); err != nil {
+		t.Fatalf("update template: %v", err)
+	}
+	if _, err := dataStore.CreateSnapshot(specID); err != nil {
+		t.Fatalf("create snapshot: %v", err)
+	}
+	if err := dataStore.SetPublishedSnapshot(specID); err != nil {
+		t.Fatalf("publish snapshot: %v", err)
+	}
+	if err := dataStore.SaveTemplate(specID, domain.Template{ID: "response", SpecID: specID, Name: "Response", Body: "snapshot two"}); err != nil {
+		t.Fatalf("update template: %v", err)
+	}
+	secondSnapshot, err := dataStore.CreateSnapshot(specID)
+	if err != nil {
+		t.Fatalf("replace snapshot: %v", err)
+	}
+	if !secondSnapshot.Snapshot || secondSnapshot.Version != 0 || secondSnapshot.Templates[0].Body != "snapshot two" {
+		t.Fatalf("unexpected replacement snapshot: %#v", secondSnapshot)
+	}
+
+	releases, err := dataStore.ListReleases(specID)
+	if err != nil {
+		t.Fatalf("list releases: %v", err)
+	}
+	if len(releases) != 2 || !releases[0].Snapshot || releases[1].Version != first.Version {
+		t.Fatalf("expected one snapshot and v%d, got %#v", first.Version, releases)
+	}
+	published, err := dataStore.GetPublishedRelease(specID)
+	if err != nil {
+		t.Fatalf("get published snapshot: %v", err)
+	}
+	if !published.Snapshot || published.Templates[0].Body != "snapshot two" {
+		t.Fatalf("unexpected published snapshot: %#v", published)
+	}
+
+	promoted, err := dataStore.PromoteSnapshot(specID, "ready")
+	if err != nil {
+		t.Fatalf("promote snapshot: %v", err)
+	}
+	if promoted.Snapshot || promoted.Version != 2 || promoted.Notes != "ready" || promoted.Templates[0].Body != "snapshot two" {
+		t.Fatalf("unexpected promoted release: %#v", promoted)
+	}
+	meta, err := dataStore.GetSpecMeta(specID)
+	if err != nil {
+		t.Fatalf("get spec meta: %v", err)
+	}
+	if meta.PublishedSnapshot || meta.PublishedVersion != promoted.Version || meta.LatestVersion != promoted.Version {
+		t.Fatalf("unexpected published metadata: %#v", meta)
+	}
+	if _, err := dataStore.GetPublishedSnapshot(specID); err != ErrNotFound {
+		t.Fatalf("snapshot should be removed after promotion, got %v", err)
+	}
+}

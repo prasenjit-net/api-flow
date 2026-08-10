@@ -39,11 +39,11 @@ func (reg *Registry) LoadFromStore() {
 		return
 	}
 	for _, meta := range metas {
-		if meta.PublishedVersion == 0 {
+		if !meta.IsPublished() {
 			reg.Unregister(meta.ID)
 			continue
 		}
-		bundle, err := reg.store.GetRelease(meta.ID, meta.PublishedVersion)
+		bundle, err := reg.store.GetPublishedRelease(meta.ID)
 		if err != nil {
 			continue
 		}
@@ -52,7 +52,7 @@ func (reg *Registry) LoadFromStore() {
 }
 
 func (reg *Registry) Register(meta domain.SpecMeta, bundle domain.ReleaseBundle) {
-	if meta.PublishedVersion == 0 || len(bundle.SpecRaw) == 0 {
+	if !meta.IsPublished() || len(bundle.SpecRaw) == 0 {
 		reg.Unregister(meta.ID)
 		return
 	}

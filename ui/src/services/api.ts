@@ -117,6 +117,10 @@ export const releasesApi = {
     request<ReleaseBundle[]>(`/specs/${specId}/releases`),
   create: (specId: string, notes: string) =>
     jsonRequest<ReleaseBundle>(`/specs/${specId}/releases`, 'POST', { notes }),
+  publishSnapshot: (specId: string) =>
+    jsonRequest<ReleaseBundle>(`/specs/${specId}/releases/snapshot/publish`, 'POST', {}),
+  promoteSnapshot: (specId: string, notes: string) =>
+    jsonRequest<ReleaseBundle>(`/specs/${specId}/releases/snapshot/promote`, 'POST', { notes }),
   publish: (specId: string, version: number) =>
     jsonRequest<SpecMeta>(`/specs/${specId}/releases/${version}/publish`, 'POST', {}),
   unpublish: (specId: string) =>
