@@ -80,6 +80,11 @@ type Mapping struct {
 	Key       string `json:"key"`
 	Value     any    `json:"value,omitempty"`
 	ValueType string `json:"valueType,omitempty"`
+	Generator string `json:"generator,omitempty"`
+	Format    string `json:"format,omitempty"`
+	Length    int    `json:"length,omitempty"`
+	Min       int    `json:"min,omitempty"`
+	Max       int    `json:"max,omitempty"`
 	// Operator is used by Data Mapper query mappings to select a comparison
 	// operator (see ConditionOperator); ignored by every other mapping list,
 	// which always compares with equality.

@@ -106,8 +106,8 @@ func ValidateFlow(flow Flow) []FlowValidationError {
 		validateMappingList(node, node.Data.Mappings, "data.mappings", nodesByName, mappingValidationOptions{enforceUnique: true}, add)
 		validateMappingList(node, node.Data.BodyMappings, "data.bodyMappings", nodesByName, mappingValidationOptions{enforceUnique: true}, add)
 		validateMappingList(node, node.Data.QueryMappings, "data.queryMappings", nodesByName, mappingValidationOptions{
-			keyPattern:      QueryFieldPattern,
-			keyPatternError: "query field must be a dotted path of lowercase letters, numbers, '-' or '_' segments (e.g. profile.age)",
+			keyPattern:       QueryFieldPattern,
+			keyPatternError:  "query field must be a dotted path of lowercase letters, numbers, '-' or '_' segments (e.g. profile.age)",
 			validateOperator: true,
 		}, add)
 	}
@@ -304,6 +304,36 @@ var validConditionOperators = map[ConditionOperator]bool{
 	ConditionOperatorNotExists:          true,
 }
 
+var validRandomGenerators = map[string]bool{
+	"":             true,
+	"uuid":         true,
+	"string":       true,
+	"alpha":        true,
+	"alphanumeric": true,
+	"hex":          true,
+	"number":       true,
+	"boolean":      true,
+}
+
+var validFakeGenerators = map[string]bool{
+	"":                 true,
+	"name.fullName":    true,
+	"name.firstName":   true,
+	"name.lastName":    true,
+	"internet.email":   true,
+	"internet.user":    true,
+	"internet.url":     true,
+	"phone.number":     true,
+	"company.name":     true,
+	"location.city":    true,
+	"location.country": true,
+	"location.street":  true,
+	"lorem.word":       true,
+	"lorem.sentence":   true,
+}
+
+var relativeTimeValidationPattern = regexp.MustCompile(`^(now|today)((?:[+-]\d+(?:ms|s|m|h|d|w)?)*)$`)
+
 type mappingValidationOptions struct {
 	keyPattern       *regexp.Regexp
 	keyPatternError  string
@@ -331,6 +361,24 @@ func validateMappingList(node Node, mappings []Mapping, fieldPrefix string, node
 				add(FlowValidationError{Code: "mapping_source_invalid", Message: sourceErr, NodeID: node.ID, Field: field + ".source"})
 			}
 		case "constant":
+		case "random":
+			if !validRandomGenerators[mapping.Generator] {
+				add(FlowValidationError{Code: "mapping_generator_invalid", Message: fmt.Sprintf("unsupported random generator %q", mapping.Generator), NodeID: node.ID, Field: field + ".generator"})
+			}
+			if (mapping.Generator == "string" || mapping.Generator == "alpha" || mapping.Generator == "alphanumeric" || mapping.Generator == "hex") && (mapping.Length < 0 || mapping.Length > 256) {
+				add(FlowValidationError{Code: "mapping_generator_invalid", Message: "random string length must be between 1 and 256", NodeID: node.ID, Field: field + ".length"})
+			}
+			if mapping.Generator == "number" && mapping.Max < mapping.Min {
+				add(FlowValidationError{Code: "mapping_generator_invalid", Message: "random number maximum must be greater than or equal to minimum", NodeID: node.ID, Field: field + ".max"})
+			}
+		case "fake":
+			if !validFakeGenerators[mapping.Generator] {
+				add(FlowValidationError{Code: "mapping_generator_invalid", Message: fmt.Sprintf("unsupported fake generator %q", mapping.Generator), NodeID: node.ID, Field: field + ".generator"})
+			}
+		case "relativeTime":
+			if expression := strings.TrimSpace(mapping.Source); expression != "" && !relativeTimeValidationPattern.MatchString(expression) {
+				add(FlowValidationError{Code: "mapping_relative_time_invalid", Message: "relative time must look like now+5h or today-3d", NodeID: node.ID, Field: field + ".source"})
+			}
 		default:
 			add(FlowValidationError{Code: "mapping_type_invalid", Message: fmt.Sprintf("unsupported mapping type %q", mapping.Type), NodeID: node.ID, Field: field + ".type"})
 		}
@@ -354,7 +402,7 @@ func validateMappingList(node Node, mappings []Mapping, fieldPrefix string, node
 
 func checkMappingReachability(node Node, mappings []Mapping, fieldPrefix string, nodesByName map[string]Node, dominators map[string]map[string]bool, add func(FlowValidationError)) {
 	for i, mapping := range mappings {
-		if mapping.Type == "constant" {
+		if mapping.Type == "constant" || mapping.Type == "random" || mapping.Type == "fake" || mapping.Type == "relativeTime" {
 			continue
 		}
 		referencedName, referencesNode := referencedNodeName(mapping.Source)

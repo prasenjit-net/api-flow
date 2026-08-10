@@ -555,6 +555,15 @@ func buildMappingValues(mappings []domain.Mapping, context map[string]any) map[s
 			input[mapping.Key] = mapping.Value
 			continue
 		}
+		if isGeneratedMapping(mapping) {
+			value, err := generatedMappingValue(mapping)
+			if err != nil {
+				input[mapping.Key] = nil
+			} else {
+				input[mapping.Key] = value
+			}
+			continue
+		}
 		value, exists := ResolveContextPath(context, mapping.Source)
 		if !exists {
 			value = nil
@@ -576,6 +585,11 @@ func resolveQueryFilters(mappings []domain.Mapping, context map[string]any) []re
 		var value any
 		if mapping.Type == "constant" {
 			value = mapping.Value
+		} else if isGeneratedMapping(mapping) {
+			generated, err := generatedMappingValue(mapping)
+			if err == nil {
+				value = generated
+			}
 		} else {
 			value, _ = ResolveContextPath(context, mapping.Source)
 		}
@@ -627,6 +641,15 @@ func buildTemplateContext(node domain.Node, context map[string]any) map[string]a
 			view[mapping.Key] = mapping.Value
 			continue
 		}
+		if isGeneratedMapping(mapping) {
+			value, err := generatedMappingValue(mapping)
+			if err != nil {
+				view[mapping.Key] = nil
+			} else {
+				view[mapping.Key] = value
+			}
+			continue
+		}
 		value, exists := ResolveContextPath(context, mapping.Source)
 		if !exists {
 			value = nil
@@ -634,6 +657,10 @@ func buildTemplateContext(node domain.Node, context map[string]any) map[string]a
 		view[mapping.Key] = value
 	}
 	return view
+}
+
+func isGeneratedMapping(mapping domain.Mapping) bool {
+	return mapping.Type == "random" || mapping.Type == "fake" || mapping.Type == "relativeTime"
 }
 
 func selectOutgoingEdge(edges []domain.Edge, context map[string]any, recorder *traceRecorder) (domain.Edge, error) {

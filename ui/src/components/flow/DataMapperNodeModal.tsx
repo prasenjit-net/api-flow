@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { X } from 'lucide-react'
 import type { Collection, DataMapperOperation, Mapping } from '../../types'
-import MappingRows from './MappingRows'
+import MappingRows, { type MappingSourceHint } from './MappingRows'
 import { emptyMapping, isCompleteMapping, queryFieldPattern } from './mappingUtils'
 
 interface Props {
@@ -11,6 +11,7 @@ interface Props {
   queryMappings: Mapping[]
   bodyMappings: Mapping[]
   collections: Collection[]
+  sourceHints?: MappingSourceHint[]
   onSave: (
     name: string,
     collectionId: string,
@@ -41,6 +42,7 @@ export default function DataMapperNodeModal({
   queryMappings: initialQueryMappings,
   bodyMappings: initialBodyMappings,
   collections,
+  sourceHints = [],
   onSave,
   onClose,
 }: Props) {
@@ -129,6 +131,7 @@ export default function DataMapperNodeModal({
                 showOperator
                 keyPattern={queryFieldPattern}
                 keyHelperText="Use a dotted field path, e.g. profile.age."
+                sourceHints={sourceHints}
               />
             </div>
           )}
@@ -144,6 +147,7 @@ export default function DataMapperNodeModal({
                 keyLabel="Document field"
                 keyPlaceholder="email"
                 addLabel="Add field"
+                sourceHints={sourceHints}
               />
             </div>
           )}

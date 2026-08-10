@@ -1,17 +1,18 @@
 import { useState } from 'react'
 import { X } from 'lucide-react'
 import type { Mapping } from '../../types'
-import MappingRows from './MappingRows'
+import MappingRows, { type MappingSourceHint } from './MappingRows'
 import { emptyMapping, isCompleteMapping } from './mappingUtils'
 
 interface Props {
   name: string
   mappings: Mapping[]
+  sourceHints?: MappingSourceHint[]
   onSave: (name: string, mappings: Mapping[]) => void
   onClose: () => void
 }
 
-export default function ContextMapperModal({ name: initialName, mappings: initial, onSave, onClose }: Props) {
+export default function ContextMapperModal({ name: initialName, mappings: initial, sourceHints = [], onSave, onClose }: Props) {
   const [name, setName] = useState(initialName)
   const [rows, setRows] = useState<Mapping[]>(initial.length > 0 ? initial : [emptyMapping()])
 
@@ -45,7 +46,7 @@ export default function ContextMapperModal({ name: initialName, mappings: initia
             <span className="mt-1 block text-[11px] text-slate-400">Lowercase letters, numbers, hyphens, and underscores only.</span>
           </label>
 
-          <MappingRows mappings={rows} onChange={setRows} sourceLabel="Source path / value" />
+          <MappingRows mappings={rows} onChange={setRows} sourceLabel="Source path / value" sourceHints={sourceHints} />
 
           <div className="mt-4 rounded bg-slate-50 p-3 text-[11px] text-slate-500 dark:bg-slate-800/60 dark:text-slate-400">
             Context sources begin with <code className="font-mono">request.</code> or <code className="font-mono">nodes.</code>. Constant mappings inject a literal value directly into the node input.
