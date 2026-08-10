@@ -5,6 +5,7 @@ export interface SpecMeta {
   uploadedAt: string
   tracingEnabled: boolean
   publishedVersion: number
+  publishedSnapshot: boolean
   latestVersion: number
   draftDirty: boolean
 }
@@ -33,6 +34,7 @@ export interface SpecDetail extends SpecMeta {
 export interface ReleaseBundle {
   specId: string
   version: number
+  snapshot?: boolean
   notes: string
   createdAt: string
   contentHash: string
@@ -302,6 +304,7 @@ export interface TraceSummary {
   specId: string
   operationId: string
   releaseVersion?: number
+  releaseSnapshot?: boolean
   method: string
   path: string
   startedAt: string

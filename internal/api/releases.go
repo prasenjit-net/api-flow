@@ -33,10 +33,13 @@ func (h *Handler) ListReleases(w http.ResponseWriter, r *http.Request) {
 	for _, release := range releases {
 		result = append(result, releaseResponse{
 			ReleaseBundle: release,
-			Published:     release.Version == meta.PublishedVersion,
+			Published:     (release.Snapshot && meta.PublishedSnapshot) || (!release.Snapshot && release.Version == meta.PublishedVersion),
 		})
 	}
 	sort.Slice(result, func(i, j int) bool {
+		if result[i].Snapshot != result[j].Snapshot {
+			return result[i].Snapshot
+		}
 		return result[i].Version > result[j].Version
 	})
 	respondJSON(w, http.StatusOK, result)
@@ -96,10 +99,78 @@ func (h *Handler) PublishRelease(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	meta.PublishedVersion = version
+	meta.PublishedSnapshot = false
 	if h.registry != nil {
 		h.registry.Register(meta, bundle)
 	}
 	respondJSON(w, http.StatusOK, meta)
+}
+
+func (h *Handler) PublishSnapshot(w http.ResponseWriter, r *http.Request) {
+	specID := chi.URLParam(r, "id")
+	if !h.specExists(w, r, specID) {
+		return
+	}
+	if validationErrors, err := h.validateDraftRelease(specID); err != nil {
+		respondError(w, r, http.StatusInternalServerError, err.Error())
+		return
+	} else if len(validationErrors) > 0 {
+		respondJSON(w, http.StatusUnprocessableEntity, withRequestID(r, map[string]any{
+			"error":   "draft validation failed",
+			"details": validationErrors,
+		}))
+		return
+	}
+	bundle, err := h.store.CreateSnapshot(specID)
+	if err != nil {
+		respondError(w, r, http.StatusInternalServerError, err.Error())
+		return
+	}
+	if err := h.store.SetPublishedSnapshot(specID); err != nil {
+		respondError(w, r, http.StatusInternalServerError, err.Error())
+		return
+	}
+	meta, err := h.store.GetSpecMeta(specID)
+	if err != nil {
+		respondError(w, r, http.StatusInternalServerError, err.Error())
+		return
+	}
+	if h.registry != nil {
+		h.registry.Register(meta, bundle)
+	}
+	respondJSON(w, http.StatusCreated, releaseResponse{ReleaseBundle: bundle, Published: true})
+}
+
+func (h *Handler) PromoteSnapshot(w http.ResponseWriter, r *http.Request) {
+	specID := chi.URLParam(r, "id")
+	if !h.specExists(w, r, specID) {
+		return
+	}
+	var payload struct {
+		Notes string `json:"notes"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&payload); err != nil && err != io.EOF {
+		respondError(w, r, http.StatusBadRequest, "invalid JSON")
+		return
+	}
+	bundle, err := h.store.PromoteSnapshot(specID, payload.Notes)
+	if err == store.ErrNotFound {
+		respondError(w, r, http.StatusNotFound, "snapshot not found")
+		return
+	}
+	if err != nil {
+		respondError(w, r, http.StatusInternalServerError, err.Error())
+		return
+	}
+	meta, err := h.store.GetSpecMeta(specID)
+	if err != nil {
+		respondError(w, r, http.StatusInternalServerError, err.Error())
+		return
+	}
+	if h.registry != nil {
+		h.registry.Register(meta, bundle)
+	}
+	respondJSON(w, http.StatusCreated, releaseResponse{ReleaseBundle: bundle, Published: true})
 }
 
 func (h *Handler) UnpublishSpec(w http.ResponseWriter, r *http.Request) {
@@ -113,6 +184,7 @@ func (h *Handler) UnpublishSpec(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	meta.PublishedVersion = 0
+	meta.PublishedSnapshot = false
 	if h.registry != nil {
 		h.registry.Unregister(specID)
 	}

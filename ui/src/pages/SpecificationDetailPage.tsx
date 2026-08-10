@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useState } from 'react'
 import { Link, useParams, useSearchParams } from 'react-router-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { AlertTriangle, Ban, ChevronLeft, GitBranch, CheckCircle2, FileJson, Activity, Play, Rocket, Trash2, X } from 'lucide-react'
@@ -36,6 +36,7 @@ function ReleaseConfirmModal({
   action,
   specName,
   publishedVersion,
+  publishedSnapshot,
   isPending,
   onCancel,
   onConfirm,
@@ -43,13 +44,14 @@ function ReleaseConfirmModal({
   action: ReleaseAction
   specName: string
   publishedVersion: number
+  publishedSnapshot: boolean
   isPending: boolean
   onCancel: () => void
   onConfirm: () => void
 }) {
   if (!action) return null
 
-  const isRollback = action.type === 'publish' && publishedVersion > 0 && action.release.version < publishedVersion
+  const isRollback = action.type === 'publish' && !publishedSnapshot && publishedVersion > 0 && action.release.version < publishedVersion
   const title = action.type === 'delete'
     ? `Delete release v${action.release.version}?`
     : action.type === 'unpublish'
@@ -111,7 +113,6 @@ export default function SpecificationDetailPage() {
   const [releaseNotes, setReleaseNotes] = useState('')
   const [releaseError, setReleaseError] = useState('')
   const [releaseAction, setReleaseAction] = useState<ReleaseAction>(null)
-  const releaseNotesInputRef = useRef<HTMLInputElement>(null)
 
   const { data: spec, isLoading, error } = useQuery({
     queryKey: ['specs', id],
@@ -145,8 +146,18 @@ export default function SpecificationDetailPage() {
     queryFn: () => collectionsApi.list(id!),
     enabled: !!id,
   })
-  const createReleaseMutation = useMutation({
-    mutationFn: () => releasesApi.create(id!, releaseNotes),
+  const publishSnapshotMutation = useMutation({
+    mutationFn: () => releasesApi.publishSnapshot(id!),
+    onSuccess: () => {
+      setReleaseError('')
+      qc.invalidateQueries({ queryKey: ['releases', id] })
+      qc.invalidateQueries({ queryKey: ['specs', id] })
+      qc.invalidateQueries({ queryKey: ['specs'] })
+    },
+    onError: (error: Error) => setReleaseError(error.message),
+  })
+  const promoteSnapshotMutation = useMutation({
+    mutationFn: () => releasesApi.promoteSnapshot(id!, releaseNotes),
     onSuccess: () => {
       setReleaseNotes('')
       setReleaseError('')
@@ -194,21 +205,17 @@ export default function SpecificationDetailPage() {
   if (isLoading) return <div className="flex h-40 items-center justify-center text-sm text-slate-400">Loading…</div>
   if (error || !spec) return <div className="flex h-40 items-center justify-center text-sm text-red-400">Failed to load specification.</div>
 
-  const isMutatingRelease = createReleaseMutation.isPending || publishMutation.isPending || deleteReleaseMutation.isPending || unpublishMutation.isPending
-  const canCreateRelease = spec.draftDirty && !isMutatingRelease
+  const isMutatingRelease = publishSnapshotMutation.isPending || promoteSnapshotMutation.isPending || publishMutation.isPending || deleteReleaseMutation.isPending || unpublishMutation.isPending
+  const canPublishSnapshot = spec.draftDirty && !isMutatingRelease
   const publishedRelease = releases.find(release => release.published)
+  const snapshot = releases.find(release => release.snapshot)
   const tabs: Array<{ id: SpecTab; label: string; count?: number }> = [
     { id: 'operations', label: 'Operations', count: spec.operations.length },
-    { id: 'releases', label: 'Releases', count: releases.length },
+    { id: 'releases', label: 'Releases', count: releases.filter(release => !release.snapshot).length },
     { id: 'templates', label: 'Templates', count: templates.length },
     { id: 'scripts', label: 'Scripts', count: scripts.length },
     { id: 'collections', label: 'Collections', count: collections.length },
   ]
-  const focusReleaseComposer = () => {
-    setActiveTab('releases')
-    setSearchParams({ tab: 'releases' })
-    requestAnimationFrame(() => releaseNotesInputRef.current?.focus())
-  }
   const selectTab = (tab: SpecTab) => {
     setActiveTab(tab)
     setSearchParams(tab === 'operations' ? {} : { tab })
@@ -259,12 +266,12 @@ export default function SpecificationDetailPage() {
           <div className="mr-auto min-w-0">
             <h2 className="text-xs font-semibold text-slate-700 dark:text-slate-200">Release and traffic</h2>
             <p className="mt-0.5 truncate text-xs text-slate-500 dark:text-slate-400">
-              {publishedRelease ? `Mock traffic serves v${publishedRelease.version}` : 'No release is serving mock traffic'}
+              {publishedRelease ? `Mock traffic serves ${publishedRelease.snapshot ? 'SNAPSHOT' : `v${publishedRelease.version}`}` : 'No release is serving mock traffic'}
             </p>
           </div>
           <div className="flex flex-wrap items-center gap-1.5">
-            <StatusPill tone={spec.publishedVersion > 0 ? 'emerald' : 'slate'}>
-              Published {spec.publishedVersion > 0 ? `v${spec.publishedVersion}` : 'none'}
+            <StatusPill tone={spec.publishedVersion > 0 || spec.publishedSnapshot ? 'emerald' : 'slate'}>
+              Published {spec.publishedSnapshot ? 'SNAPSHOT' : spec.publishedVersion > 0 ? `v${spec.publishedVersion}` : 'none'}
             </StatusPill>
             <StatusPill tone={spec.latestVersion > 0 ? 'blue' : 'slate'}>
               Latest {spec.latestVersion > 0 ? `v${spec.latestVersion}` : 'none'}
@@ -276,15 +283,15 @@ export default function SpecificationDetailPage() {
           <div className="flex flex-wrap items-center gap-2">
             <button
               type="button"
-              onClick={focusReleaseComposer}
-              disabled={!canCreateRelease}
+              onClick={() => publishSnapshotMutation.mutate()}
+              disabled={!canPublishSnapshot}
               className="inline-flex items-center gap-1.5 rounded bg-blue-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-50"
-              title={spec.draftDirty ? 'Open release creation' : 'No unreleased draft changes'}
+              title={spec.draftDirty ? 'Create and publish a replaceable snapshot from the current draft' : 'No unreleased draft changes'}
             >
               <Rocket className="h-3.5 w-3.5" />
-              Create release
+              {publishSnapshotMutation.isPending ? 'Publishing...' : 'Publish snapshot'}
             </button>
-            {spec.publishedVersion > 0 && (
+            {(spec.publishedVersion > 0 || spec.publishedSnapshot) && (
               <button
                 type="button"
                 onClick={() => setReleaseAction({ type: 'unpublish' })}
@@ -325,33 +332,34 @@ export default function SpecificationDetailPage() {
             <div className="mb-4 flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
               <div>
                 <h2 className="text-sm font-semibold text-slate-800 dark:text-slate-100">Releases</h2>
-                <p className="text-xs text-slate-500 dark:text-slate-400">Mock traffic serves the published release bundle.</p>
+                <p className="text-xs text-slate-500 dark:text-slate-400">Promote the current snapshot to preserve it as an immutable versioned release.</p>
               </div>
+              {snapshot && (
               <div className="flex w-full flex-col gap-2 sm:flex-row lg:w-auto">
                 <input
-                  ref={releaseNotesInputRef}
                   value={releaseNotes}
                   onChange={event => setReleaseNotes(event.target.value)}
-                  placeholder={spec.draftDirty ? 'Release notes' : 'Draft is current'}
-                  disabled={!spec.draftDirty || isMutatingRelease}
+                  placeholder="Versioned release notes"
+                  disabled={isMutatingRelease}
                   className="min-w-0 rounded border border-slate-200 bg-slate-50 px-3 py-1.5 text-xs text-slate-700 focus:border-blue-400 focus:bg-white focus:outline-none focus:ring-1 focus:ring-blue-400 disabled:cursor-not-allowed disabled:opacity-60 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200 sm:w-72"
                 />
                 <button
                   type="button"
-                  onClick={() => createReleaseMutation.mutate()}
-                  disabled={!canCreateRelease}
+                  onClick={() => promoteSnapshotMutation.mutate()}
+                  disabled={isMutatingRelease}
                   className="inline-flex items-center justify-center gap-1.5 rounded bg-blue-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-50"
-                  title={spec.draftDirty ? 'Create release from the current draft' : 'No unreleased draft changes'}
+                  title="Convert the current snapshot into an immutable release"
                 >
                   <Rocket className="h-3.5 w-3.5" />
-                  {createReleaseMutation.isPending ? 'Creating...' : 'Save release'}
+                  {promoteSnapshotMutation.isPending ? 'Converting...' : `Create v${spec.latestVersion + 1}`}
                 </button>
               </div>
+              )}
             </div>
             {releaseError && <div className="mb-3 rounded border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700 dark:border-red-900/50 dark:bg-red-950/30 dark:text-red-300">{releaseError}</div>}
-            {!spec.draftDirty && (
+            {!snapshot && (
               <div className="mb-3 rounded border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-500 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-400">
-                Draft matches the latest saved release, so there is nothing new to release.
+                Publish a snapshot from the spec overview before creating a versioned release.
               </div>
             )}
             {releasesLoading ? (
@@ -361,17 +369,17 @@ export default function SpecificationDetailPage() {
             ) : (
               <div className="divide-y divide-slate-100 rounded-lg border border-slate-200 dark:divide-slate-800 dark:border-slate-800">
                 {releases.map(release => {
-                  const isRollback = spec.publishedVersion > 0 && release.version < spec.publishedVersion
+                  const isRollback = !spec.publishedSnapshot && spec.publishedVersion > 0 && !release.snapshot && release.version < spec.publishedVersion
                   return (
                     <div key={release.version} className="grid gap-3 px-3 py-3 sm:grid-cols-[80px_1fr_170px_220px] sm:items-center">
                       <div className="flex items-center gap-2">
-                        <span className="text-xs font-semibold text-slate-700 dark:text-slate-200">v{release.version}</span>
+                        <span className="text-xs font-semibold text-slate-700 dark:text-slate-200">{release.snapshot ? 'SNAPSHOT' : `v${release.version}`}</span>
                         {release.published && <StatusPill tone="emerald">Published</StatusPill>}
                       </div>
-                      <span className="min-w-0 text-xs text-slate-500 dark:text-slate-400 sm:truncate">{release.notes || 'No notes'}</span>
+                      <span className="min-w-0 text-xs text-slate-500 dark:text-slate-400 sm:truncate">{release.snapshot ? 'Replaceable draft release' : release.notes || 'No notes'}</span>
                       <span className="text-xs text-slate-400">{new Date(release.createdAt).toLocaleString()}</span>
                       <div className="flex flex-wrap justify-start gap-2 sm:justify-end">
-                        {!release.published ? (
+                        {release.snapshot ? null : !release.published ? (
                           <button
                             type="button"
                             onClick={() => setReleaseAction({ type: 'publish', release })}
@@ -391,7 +399,7 @@ export default function SpecificationDetailPage() {
                             Unpublish
                           </button>
                         )}
-                        <button
+                        {!release.snapshot && <button
                           type="button"
                           disabled={release.published || isMutatingRelease}
                           onClick={() => setReleaseAction({ type: 'delete', release })}
@@ -400,6 +408,7 @@ export default function SpecificationDetailPage() {
                         >
                           <Trash2 className="h-3.5 w-3.5" />
                         </button>
+                        }
                       </div>
                     </div>
                   )
@@ -467,6 +476,7 @@ export default function SpecificationDetailPage() {
         action={releaseAction}
         specName={spec.name}
         publishedVersion={spec.publishedVersion}
+        publishedSnapshot={spec.publishedSnapshot}
         isPending={publishMutation.isPending || deleteReleaseMutation.isPending || unpublishMutation.isPending}
         onCancel={() => setReleaseAction(null)}
         onConfirm={() => {

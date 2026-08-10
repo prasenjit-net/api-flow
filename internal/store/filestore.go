@@ -95,6 +95,10 @@ func (s *FileStore) releasePath(specID string, version int) string {
 	return filepath.Join(s.releasesDir(specID), fmt.Sprintf("v%d.json", version))
 }
 
+func (s *FileStore) snapshotPath(specID string) string {
+	return filepath.Join(s.releasesDir(specID), "snapshot.json")
+}
+
 func (s *FileStore) SaveSpecMeta(meta domain.SpecMeta) error {
 	dir := s.specDir(meta.ID)
 	for _, sub := range []string{s.draftFlowsDir(meta.ID), s.draftTemplatesDir(meta.ID), s.draftScriptsDir(meta.ID), s.draftCollectionsDir(meta.ID), s.liveCollectionsDir(meta.ID), s.releasesDir(meta.ID)} {
@@ -490,16 +494,17 @@ func (s *FileStore) ListTraces() ([]domain.TraceSummary, error) {
 			continue
 		}
 		result = append(result, domain.TraceSummary{
-			ID:             trace.ID,
-			SpecID:         trace.SpecID,
-			OperationID:    trace.OperationID,
-			ReleaseVersion: trace.ReleaseVersion,
-			Method:         trace.Method,
-			Path:           trace.Path,
-			StartedAt:      trace.StartedAt,
-			DurationMS:     trace.DurationMS,
-			StatusCode:     trace.StatusCode,
-			Error:          trace.Error,
+			ID:              trace.ID,
+			SpecID:          trace.SpecID,
+			OperationID:     trace.OperationID,
+			ReleaseVersion:  trace.ReleaseVersion,
+			ReleaseSnapshot: trace.ReleaseSnapshot,
+			Method:          trace.Method,
+			Path:            trace.Path,
+			StartedAt:       trace.StartedAt,
+			DurationMS:      trace.DurationMS,
+			StatusCode:      trace.StatusCode,
+			Error:           trace.Error,
 		})
 	}
 	return result, nil
@@ -526,6 +531,69 @@ func (s *FileStore) CreateRelease(specID, notes string) (domain.ReleaseBundle, e
 	if err != nil {
 		return domain.ReleaseBundle{}, err
 	}
+	bundle, err := s.draftReleaseBundle(specID, meta.LatestVersion+1, notes, false)
+	if err != nil {
+		return domain.ReleaseBundle{}, err
+	}
+	if err := os.MkdirAll(s.releasesDir(specID), 0o755); err != nil {
+		return domain.ReleaseBundle{}, err
+	}
+	if err := writeJSONAtomic(s.releasePath(specID, bundle.Version), bundle); err != nil {
+		return domain.ReleaseBundle{}, err
+	}
+	meta.LatestVersion = bundle.Version
+	if err := s.SaveSpecMeta(meta); err != nil {
+		return domain.ReleaseBundle{}, err
+	}
+	return bundle, nil
+}
+
+func (s *FileStore) CreateSnapshot(specID string) (domain.ReleaseBundle, error) {
+	if _, err := s.GetSpecMeta(specID); err != nil {
+		return domain.ReleaseBundle{}, err
+	}
+	bundle, err := s.draftReleaseBundle(specID, 0, "", true)
+	if err != nil {
+		return domain.ReleaseBundle{}, err
+	}
+	if err := os.MkdirAll(s.releasesDir(specID), 0o755); err != nil {
+		return domain.ReleaseBundle{}, err
+	}
+	if err := writeJSONAtomic(s.snapshotPath(specID), bundle); err != nil {
+		return domain.ReleaseBundle{}, err
+	}
+	return bundle, nil
+}
+
+func (s *FileStore) PromoteSnapshot(specID, notes string) (domain.ReleaseBundle, error) {
+	meta, err := s.GetSpecMeta(specID)
+	if err != nil {
+		return domain.ReleaseBundle{}, err
+	}
+	var bundle domain.ReleaseBundle
+	if err := readJSON(s.snapshotPath(specID), &bundle); err != nil {
+		return domain.ReleaseBundle{}, err
+	}
+	bundle.Version = meta.LatestVersion + 1
+	bundle.Snapshot = false
+	bundle.Notes = strings.TrimSpace(notes)
+	bundle.CreatedAt = time.Now().UTC()
+	if err := writeJSONAtomic(s.releasePath(specID, bundle.Version), bundle); err != nil {
+		return domain.ReleaseBundle{}, err
+	}
+	if err := os.Remove(s.snapshotPath(specID)); err != nil {
+		return domain.ReleaseBundle{}, err
+	}
+	meta.LatestVersion = bundle.Version
+	meta.PublishedVersion = bundle.Version
+	meta.PublishedSnapshot = false
+	if err := s.SaveSpecMeta(meta); err != nil {
+		return domain.ReleaseBundle{}, err
+	}
+	return bundle, nil
+}
+
+func (s *FileStore) draftReleaseBundle(specID string, version int, notes string, snapshot bool) (domain.ReleaseBundle, error) {
 	contentHash, err := s.DraftContentHash(specID)
 	if err != nil {
 		return domain.ReleaseBundle{}, err
@@ -553,10 +621,10 @@ func (s *FileStore) CreateRelease(specID, notes string) (domain.ReleaseBundle, e
 		return domain.ReleaseBundle{}, err
 	}
 
-	version := meta.LatestVersion + 1
-	bundle := domain.ReleaseBundle{
+	return domain.ReleaseBundle{
 		SpecID:      specID,
 		Version:     version,
+		Snapshot:    snapshot,
 		Notes:       strings.TrimSpace(notes),
 		CreatedAt:   time.Now().UTC(),
 		ContentHash: contentHash,
@@ -565,18 +633,7 @@ func (s *FileStore) CreateRelease(specID, notes string) (domain.ReleaseBundle, e
 		Templates:   templates,
 		Scripts:     scripts,
 		Collections: collections,
-	}
-	if err := os.MkdirAll(s.releasesDir(specID), 0o755); err != nil {
-		return domain.ReleaseBundle{}, err
-	}
-	if err := writeJSONAtomic(s.releasePath(specID, version), bundle); err != nil {
-		return domain.ReleaseBundle{}, err
-	}
-	meta.LatestVersion = version
-	if err := s.SaveSpecMeta(meta); err != nil {
-		return domain.ReleaseBundle{}, err
-	}
-	return bundle, nil
+	}, nil
 }
 
 func (s *FileStore) ListReleases(specID string) ([]domain.ReleaseBundle, error) {
@@ -589,16 +646,20 @@ func (s *FileStore) ListReleases(specID string) ([]domain.ReleaseBundle, error) 
 	}
 	releases := make([]domain.ReleaseBundle, 0, len(entries))
 	for _, entry := range entries {
-		if entry.IsDir() || !strings.HasPrefix(entry.Name(), "v") || !strings.HasSuffix(entry.Name(), ".json") {
+		if entry.IsDir() || (!strings.HasPrefix(entry.Name(), "v") && entry.Name() != "snapshot.json") || !strings.HasSuffix(entry.Name(), ".json") {
 			continue
 		}
 		var bundle domain.ReleaseBundle
 		if err := readJSON(filepath.Join(s.releasesDir(specID), entry.Name()), &bundle); err != nil {
 			continue
 		}
+		bundle.Snapshot = entry.Name() == "snapshot.json" || bundle.Snapshot
 		releases = append(releases, bundle)
 	}
 	sort.Slice(releases, func(i, j int) bool {
+		if releases[i].Snapshot != releases[j].Snapshot {
+			return releases[i].Snapshot
+		}
 		return releases[i].Version < releases[j].Version
 	})
 	return releases, nil
@@ -610,6 +671,20 @@ func (s *FileStore) GetRelease(specID string, version int) (domain.ReleaseBundle
 		return bundle, ErrNotFound
 	}
 	return bundle, readJSON(s.releasePath(specID, version), &bundle)
+}
+
+func (s *FileStore) GetPublishedRelease(specID string) (domain.ReleaseBundle, error) {
+	meta, err := s.GetSpecMeta(specID)
+	if err != nil {
+		return domain.ReleaseBundle{}, err
+	}
+	if meta.PublishedSnapshot {
+		return s.GetPublishedSnapshot(specID)
+	}
+	if meta.PublishedVersion > 0 {
+		return s.GetRelease(specID, meta.PublishedVersion)
+	}
+	return domain.ReleaseBundle{}, ErrNotFound
 }
 
 func (s *FileStore) DeleteRelease(specID string, version int) error {
@@ -654,7 +729,30 @@ func (s *FileStore) SetPublishedVersion(specID string, version int) error {
 		}
 	}
 	meta.PublishedVersion = version
+	meta.PublishedSnapshot = false
 	return s.SaveSpecMeta(meta)
+}
+
+func (s *FileStore) SetPublishedSnapshot(specID string) error {
+	if _, err := s.GetPublishedSnapshot(specID); err != nil {
+		return err
+	}
+	meta, err := s.GetSpecMeta(specID)
+	if err != nil {
+		return err
+	}
+	meta.PublishedVersion = 0
+	meta.PublishedSnapshot = true
+	return s.SaveSpecMeta(meta)
+}
+
+func (s *FileStore) GetPublishedSnapshot(specID string) (domain.ReleaseBundle, error) {
+	var bundle domain.ReleaseBundle
+	if err := readJSON(s.snapshotPath(specID), &bundle); err != nil {
+		return bundle, err
+	}
+	bundle.Snapshot = true
+	return bundle, nil
 }
 
 func (s *FileStore) DraftContentHash(specID string) (string, error) {
@@ -1007,7 +1105,7 @@ func (s *FileStore) ensureInitialPublishedReleases() error {
 		return err
 	}
 	for _, meta := range specs {
-		if meta.LatestVersion != 0 {
+		if meta.LatestVersion != 0 || meta.PublishedSnapshot {
 			continue
 		}
 		bundle, err := s.CreateRelease(meta.ID, "Initial release")

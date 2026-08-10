@@ -79,7 +79,7 @@ export default function OverviewPage() {
   const operationCount = operations.length
   const flowCount = operations.filter(operation => operation.hasFlow).length
   const tracingEnabledCount = specs.filter(spec => spec.tracingEnabled).length
-  const publishedSpecCount = specs.filter(spec => spec.publishedVersion > 0).length
+  const publishedSpecCount = specs.filter(spec => spec.publishedSnapshot || spec.publishedVersion > 0).length
   const dirtySpecCount = specs.filter(spec => spec.draftDirty).length
   const operationScopedTemplateCount = templates.filter(template => template.operationId).length
   const reusableTemplateCount = templates.length - operationScopedTemplateCount
@@ -164,11 +164,11 @@ export default function OverviewPage() {
                           <div className="flex items-center gap-2">
                             <span className="truncate text-sm font-semibold text-slate-800 dark:text-slate-100">{spec.name}</span>
                             <span className={`shrink-0 rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide ${
-                              spec.publishedVersion > 0
+                              spec.publishedSnapshot || spec.publishedVersion > 0
                                 ? 'bg-blue-50 text-blue-700 dark:bg-blue-950/30 dark:text-blue-300'
                                 : 'bg-slate-100 text-slate-400 dark:bg-slate-800'
                             }`}>
-                              {spec.publishedVersion > 0 ? `published v${spec.publishedVersion}` : 'unpublished'}
+                              {spec.publishedSnapshot ? 'published snapshot' : spec.publishedVersion > 0 ? `published v${spec.publishedVersion}` : 'unpublished'}
                             </span>
                             {spec.draftDirty && (
                               <span className="shrink-0 rounded-full bg-amber-50 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-amber-700 dark:bg-amber-950/30 dark:text-amber-300">
@@ -255,7 +255,7 @@ export default function OverviewPage() {
                             <p className="truncate font-mono text-xs text-slate-400">{trace.operationId}</p>
                           </div>
                           <span className="w-fit rounded bg-slate-100 px-1.5 py-0.5 text-[10px] font-semibold text-slate-500 dark:bg-slate-800 dark:text-slate-400">
-                            {trace.releaseVersion ? `v${trace.releaseVersion}` : 'draft'}
+                            {trace.releaseSnapshot ? 'snapshot' : trace.releaseVersion ? `v${trace.releaseVersion}` : 'draft'}
                           </span>
                           <span className={`inline-flex items-center gap-1 text-xs font-semibold ${failed ? 'text-red-500' : 'text-emerald-600 dark:text-emerald-400'}`}>
                             {failed ? <AlertTriangle className="h-3.5 w-3.5" /> : <CheckCircle2 className="h-3.5 w-3.5" />}

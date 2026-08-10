@@ -95,6 +95,19 @@ func TestRegistryServesPublishedBundleAndSupportsRollback(t *testing.T) {
 	}
 	reg.Register(meta, v1)
 	assertMockResponse(t, reg, "v1")
+
+	if err := dataStore.SaveTemplate(specID, domain.Template{ID: "response", SpecID: specID, Name: "Response", Body: "snapshot", StatusCode: http.StatusOK, Headers: map[string]string{}}); err != nil {
+		t.Fatalf("update draft template for snapshot: %v", err)
+	}
+	if _, err := dataStore.CreateSnapshot(specID); err != nil {
+		t.Fatalf("create snapshot: %v", err)
+	}
+	if err := dataStore.SetPublishedSnapshot(specID); err != nil {
+		t.Fatalf("publish snapshot: %v", err)
+	}
+	reg = New(dataStore, executor.New(dataStore))
+	reg.LoadFromStore()
+	assertMockResponse(t, reg, "snapshot")
 }
 
 func assertMockResponse(t *testing.T, reg *Registry, expectedBody string) {

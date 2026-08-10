@@ -192,7 +192,7 @@ export default function TraceDetailPage() {
           {trace.statusCode || '—'}
         </span>
         <span className="rounded bg-slate-100 px-2 py-0.5 text-xs font-medium text-slate-500 dark:bg-slate-800 dark:text-slate-400">
-          {trace.releaseVersion ? `Release v${trace.releaseVersion}` : 'Draft'}
+          {trace.releaseSnapshot ? 'Release snapshot' : trace.releaseVersion ? `Release v${trace.releaseVersion}` : 'Draft'}
         </span>
         <span className="inline-flex items-center gap-1 text-xs text-slate-400 sm:ml-auto">
           <Clock className="h-3.5 w-3.5" /> {trace.durationMs} ms

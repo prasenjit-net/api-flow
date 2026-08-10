@@ -50,7 +50,7 @@ type traceRecorder struct {
 	trace *domain.Trace
 }
 
-func newTraceRecorder(flow domain.Flow, r *http.Request, context map[string]any, releaseVersion int) *traceRecorder {
+func newTraceRecorder(flow domain.Flow, r *http.Request, context map[string]any, releaseVersion int, releaseSnapshot bool) *traceRecorder {
 	request := domain.TraceHTTPMessage{
 		Method: r.Method,
 		URL:    r.URL.String(),
@@ -67,17 +67,18 @@ func newTraceRecorder(flow domain.Flow, r *http.Request, context map[string]any,
 	now := time.Now().UTC()
 	return &traceRecorder{
 		trace: &domain.Trace{
-			ID:             uuid.NewString(),
-			SpecID:         flow.SpecID,
-			OperationID:    flow.OperationID,
-			ReleaseVersion: releaseVersion,
-			Method:         r.Method,
-			Path:           r.URL.Path,
-			StartedAt:      now,
-			Request:        request,
-			Context:        map[string]any{},
-			Nodes:          []domain.TraceNode{},
-			Edges:          []domain.TraceEdge{},
+			ID:              uuid.NewString(),
+			SpecID:          flow.SpecID,
+			OperationID:     flow.OperationID,
+			ReleaseVersion:  releaseVersion,
+			ReleaseSnapshot: releaseSnapshot,
+			Method:          r.Method,
+			Path:            r.URL.Path,
+			StartedAt:       now,
+			Request:         request,
+			Context:         map[string]any{},
+			Nodes:           []domain.TraceNode{},
+			Edges:           []domain.TraceEdge{},
 		},
 	}
 }

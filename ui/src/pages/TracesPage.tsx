@@ -136,7 +136,7 @@ export default function TracesPage() {
                     </div>
                     <span className="hidden truncate font-mono text-xs text-slate-500 dark:text-slate-400 lg:block">{trace.operationId}</span>
                     <span className="w-fit rounded bg-slate-100 px-1.5 py-0.5 text-[10px] font-semibold text-slate-500 dark:bg-slate-800 dark:text-slate-400">
-                      {trace.releaseVersion ? `v${trace.releaseVersion}` : 'draft'}
+                      {trace.releaseSnapshot ? 'snapshot' : trace.releaseVersion ? `v${trace.releaseVersion}` : 'draft'}
                     </span>
                     <span className={`text-xs font-semibold ${trace.error || trace.statusCode >= 500 ? 'text-red-500' : 'text-emerald-600 dark:text-emerald-400'}`}>
                       {trace.statusCode || '—'}

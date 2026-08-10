@@ -67,10 +67,12 @@ func (e *Executor) execute(w http.ResponseWriter, r *http.Request, bundle *domai
 	var recorder *traceRecorder
 	if tracingEnabled {
 		releaseVersion := 0
+		releaseSnapshot := false
 		if bundle != nil {
 			releaseVersion = bundle.Version
+			releaseSnapshot = bundle.Snapshot
 		}
-		recorder = newTraceRecorder(flow, r, ctx, releaseVersion)
+		recorder = newTraceRecorder(flow, r, ctx, releaseVersion, releaseSnapshot)
 		defer func() {
 			errText := traceErr
 			if errText == "" && responseRecorder != nil && responseRecorder.statusCode >= http.StatusBadRequest {
