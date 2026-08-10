@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"sort"
 	"strings"
 	"time"
 
@@ -26,16 +25,6 @@ type specDetailResponse struct {
 type specListResponse struct {
 	domain.SpecMeta
 	DraftDirty bool `json:"draftDirty"`
-}
-
-var operationMethodOrder = map[string]int{
-	http.MethodGet:     0,
-	http.MethodPost:    1,
-	http.MethodPut:     2,
-	http.MethodHead:    3,
-	"OPTION":           4,
-	http.MethodOptions: 4,
-	http.MethodDelete:  5,
 }
 
 func (h *Handler) ListSpecs(w http.ResponseWriter, r *http.Request) {
@@ -208,149 +197,7 @@ func (h *Handler) UpdateSpecTracing(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) parseOperations(specID string) ([]domain.Operation, error) {
-	doc, err := h.loadSpecDocument(specID)
-	if err != nil {
-		return nil, err
-	}
-
-	flows, _ := h.store.ListFlows(specID)
-	flowSet := make(map[string]bool, len(flows))
-	for _, f := range flows {
-		flowSet[f.OperationID] = true
-	}
-
-	var ops []domain.Operation
-	for path, pathItem := range doc.Paths.Map() {
-		for method, op := range pathItem.Operations() {
-			summary, description := "", ""
-			if op != nil {
-				summary = op.Summary
-				description = op.Description
-			}
-			opID := domain.MakeOpID(method, path)
-			ops = append(ops, domain.Operation{
-				ID:          opID,
-				Method:      strings.ToUpper(method),
-				Path:        path,
-				Summary:     summary,
-				Description: description,
-				HasFlow:     flowSet[opID],
-				InputHints:  operationHints(pathItem, op),
-			})
-		}
-	}
-	sort.Slice(ops, func(i, j int) bool {
-		leftOrder, leftKnown := operationMethodOrder[ops[i].Method]
-		rightOrder, rightKnown := operationMethodOrder[ops[j].Method]
-		if leftKnown != rightKnown {
-			return leftKnown
-		}
-		if leftKnown && leftOrder != rightOrder {
-			return leftOrder < rightOrder
-		}
-		if ops[i].Method != ops[j].Method {
-			return ops[i].Method < ops[j].Method
-		}
-		if ops[i].Path != ops[j].Path {
-			return ops[i].Path < ops[j].Path
-		}
-		return ops[i].ID < ops[j].ID
-	})
-	return ops, nil
-}
-
-func operationHints(pathItem *openapi3.PathItem, op *openapi3.Operation) domain.OperationHints {
-	hints := domain.OperationHints{}
-	if pathItem != nil {
-		addParameterHints(&hints, pathItem.Parameters)
-	}
-	if op != nil {
-		addParameterHints(&hints, op.Parameters)
-		addBodyHints(&hints, op.RequestBody)
-	}
-	hints.Path = uniqueSorted(hints.Path)
-	hints.Query = uniqueSorted(hints.Query)
-	hints.Headers = uniqueSorted(hints.Headers)
-	hints.Body = uniqueSorted(hints.Body)
-	return hints
-}
-
-func addParameterHints(hints *domain.OperationHints, parameters openapi3.Parameters) {
-	for _, ref := range parameters {
-		if ref == nil || ref.Value == nil || ref.Value.Name == "" {
-			continue
-		}
-		switch ref.Value.In {
-		case openapi3.ParameterInPath:
-			hints.Path = append(hints.Path, ref.Value.Name)
-		case openapi3.ParameterInQuery:
-			hints.Query = append(hints.Query, ref.Value.Name)
-		case openapi3.ParameterInHeader:
-			hints.Headers = append(hints.Headers, strings.ToLower(ref.Value.Name))
-		}
-	}
-}
-
-func addBodyHints(hints *domain.OperationHints, requestBody *openapi3.RequestBodyRef) {
-	if requestBody == nil || requestBody.Value == nil {
-		return
-	}
-	for _, mediaType := range requestBody.Value.Content {
-		if mediaType == nil || mediaType.Schema == nil {
-			continue
-		}
-		collectSchemaPaths(mediaType.Schema, "", 0, &hints.Body)
-	}
-}
-
-func collectSchemaPaths(ref *openapi3.SchemaRef, prefix string, depth int, out *[]string) {
-	if ref == nil || ref.Value == nil || depth > 3 {
-		return
-	}
-	schema := ref.Value
-	for _, child := range schema.AllOf {
-		collectSchemaPaths(child, prefix, depth, out)
-	}
-	for _, child := range schema.AnyOf {
-		collectSchemaPaths(child, prefix, depth, out)
-	}
-	for _, child := range schema.OneOf {
-		collectSchemaPaths(child, prefix, depth, out)
-	}
-	for name, child := range schema.Properties {
-		path := name
-		if prefix != "" {
-			path = prefix + "." + name
-		}
-		*out = append(*out, path)
-		if child != nil && child.Value != nil && len(child.Value.Properties) > 0 {
-			collectSchemaPaths(child, path, depth+1, out)
-		}
-	}
-	if schema.Items != nil && schema.Items.Value != nil && len(schema.Items.Value.Properties) > 0 {
-		collectSchemaPaths(schema.Items, prefix, depth+1, out)
-	}
-}
-
-func uniqueSorted(values []string) []string {
-	if len(values) == 0 {
-		return nil
-	}
-	seen := make(map[string]struct{}, len(values))
-	result := make([]string, 0, len(values))
-	for _, value := range values {
-		value = strings.TrimSpace(value)
-		if value == "" {
-			continue
-		}
-		if _, exists := seen[value]; exists {
-			continue
-		}
-		seen[value] = struct{}{}
-		result = append(result, value)
-	}
-	sort.Strings(result)
-	return result
+	return h.workspace.ListOperations(specID)
 }
 
 func (h *Handler) loadSpecDocument(specID string) (*openapi3.T, error) {

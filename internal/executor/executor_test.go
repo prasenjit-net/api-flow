@@ -159,7 +159,8 @@ func TestDataMapperWritesUseSessionOverlayOnly(t *testing.T) {
 	if sessionID == "" {
 		t.Fatal("expected generated session header")
 	}
-	if output.(map[string]any)["id"] == "" {
+	inserted := output.(map[string]any)["data"].(map[string]any)
+	if inserted["email"] != "a@example.com" || inserted["name"] != "Asha" {
 		t.Fatalf("expected inserted document output, got %#v", output)
 	}
 	realDocs, err := dataStore.ListDocuments("customer-spec", "customers")
@@ -187,6 +188,75 @@ func TestDataMapperWritesUseSessionOverlayOnly(t *testing.T) {
 	}
 	if isolated != nil {
 		t.Fatalf("expected request without session to not see overlay, got %#v", isolated)
+	}
+}
+
+func TestDataMapperFindManyPassesAnArrayToDownstreamStarlark(t *testing.T) {
+	dataStore, err := store.New(t.TempDir())
+	if err != nil {
+		t.Fatalf("create store: %v", err)
+	}
+	if err := dataStore.SaveSpecMeta(domain.SpecMeta{ID: "customer-spec", Name: "Customers"}); err != nil {
+		t.Fatalf("save spec: %v", err)
+	}
+	if err := dataStore.SaveCollection("customer-spec", domain.Collection{ID: "customers", Name: "Customers"}); err != nil {
+		t.Fatalf("save collection: %v", err)
+	}
+	for _, document := range []domain.Document{
+		{ID: "one", CollectionID: "customers", Data: map[string]any{"name": "Asha"}},
+		{ID: "two", CollectionID: "customers", Data: map[string]any{"name": "Mira"}},
+	} {
+		if err := dataStore.SaveDocument("customer-spec", "customers", document); err != nil {
+			t.Fatalf("save document: %v", err)
+		}
+	}
+	if err := dataStore.SaveScript("customer-spec", domain.Script{
+		ID: "count-records", SpecID: "customer-spec", Name: "Count records",
+		Source: "def run(input):\n    return {\"count\": len(input[\"records\"][\"data\"])}\n",
+	}); err != nil {
+		t.Fatalf("save script: %v", err)
+	}
+	if err := dataStore.SaveTemplate("customer-spec", domain.Template{
+		ID: "response", SpecID: "customer-spec", Name: "Response", StatusCode: http.StatusOK,
+		Body: `{{index .nodes "count" "count"}}`, Headers: map[string]string{},
+	}); err != nil {
+		t.Fatalf("save template: %v", err)
+	}
+
+	flow := domain.Flow{
+		Version: domain.CurrentFlowVersion, SpecID: "customer-spec", OperationID: "get-customers",
+		Nodes: []domain.Node{
+			{ID: "start", Type: domain.NodeTypeStart, Data: domain.NodeData{Name: "start"}},
+			{ID: "find-many", Type: domain.NodeTypeDataMapper, Data: domain.NodeData{Name: "records", CollectionID: "customers", Operation: "findMany"}},
+			{ID: "count", Type: domain.NodeTypeStarlark, Data: domain.NodeData{Name: "count", ScriptID: "count-records", Mappings: []domain.Mapping{{Source: "nodes.records", Key: "records"}}}},
+			{ID: "response", Type: domain.NodeTypeTemplate, Data: domain.NodeData{Name: "response", TemplateID: "response"}},
+			{ID: "end", Type: domain.NodeTypeEnd, Data: domain.NodeData{Name: "end"}},
+		},
+		Edges: []domain.Edge{
+			{ID: "start-find", Source: "start", Target: "find-many"},
+			{ID: "find-count", Source: "find-many", Target: "count"},
+			{ID: "count-response", Source: "count", Target: "response"},
+			{ID: "response-end", Source: "response", Target: "end"},
+		},
+	}
+	response := httptest.NewRecorder()
+	New(dataStore).Execute(response, httptest.NewRequest(http.MethodGet, "/customers", nil), flow, nil)
+	if response.Code != http.StatusOK || response.Body.String() != "2" {
+		t.Fatalf("expected findMany array to reach Starlark, got status=%d body=%q", response.Code, response.Body.String())
+	}
+}
+
+func TestRenderStringSerializesStructuredShorthandValuesAsJSON(t *testing.T) {
+	rendered, err := renderString(`{{nodes.records.data}}`, map[string]any{
+		"nodes": map[string]any{
+			"records": map[string]any{"data": []any{map[string]any{"id": "one", "name": "Asha"}}},
+		},
+	})
+	if err != nil {
+		t.Fatalf("render structured shorthand: %v", err)
+	}
+	if rendered != `[{"id":"one","name":"Asha"}]` {
+		t.Fatalf("expected JSON array, got %q", rendered)
 	}
 }
 

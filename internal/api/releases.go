@@ -77,7 +77,7 @@ func (h *Handler) CreateRelease(w http.ResponseWriter, r *http.Request) {
 
 func (h *Handler) PublishRelease(w http.ResponseWriter, r *http.Request) {
 	specID := chi.URLParam(r, "id")
-	meta, ok := h.getSpecMeta(w, r, specID)
+	_, ok := h.getSpecMeta(w, r, specID)
 	if !ok {
 		return
 	}
@@ -85,7 +85,7 @@ func (h *Handler) PublishRelease(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	bundle, err := h.store.GetRelease(specID, version)
+	updatedMeta, err := h.workspace.PublishRelease(specID, version)
 	if err == store.ErrNotFound {
 		respondError(w, r, http.StatusNotFound, "release not found")
 		return
@@ -94,16 +94,7 @@ func (h *Handler) PublishRelease(w http.ResponseWriter, r *http.Request) {
 		respondError(w, r, http.StatusInternalServerError, err.Error())
 		return
 	}
-	if err := h.store.SetPublishedVersion(specID, version); err != nil {
-		respondError(w, r, http.StatusInternalServerError, err.Error())
-		return
-	}
-	meta.PublishedVersion = version
-	meta.PublishedSnapshot = false
-	if h.registry != nil {
-		h.registry.Register(meta, bundle)
-	}
-	respondJSON(w, http.StatusOK, meta)
+	respondJSON(w, http.StatusOK, updatedMeta)
 }
 
 func (h *Handler) PublishSnapshot(w http.ResponseWriter, r *http.Request) {
@@ -121,22 +112,10 @@ func (h *Handler) PublishSnapshot(w http.ResponseWriter, r *http.Request) {
 		}))
 		return
 	}
-	bundle, err := h.store.CreateSnapshot(specID)
+	bundle, err := h.workspace.PublishSnapshot(specID)
 	if err != nil {
 		respondError(w, r, http.StatusInternalServerError, err.Error())
 		return
-	}
-	if err := h.store.SetPublishedSnapshot(specID); err != nil {
-		respondError(w, r, http.StatusInternalServerError, err.Error())
-		return
-	}
-	meta, err := h.store.GetSpecMeta(specID)
-	if err != nil {
-		respondError(w, r, http.StatusInternalServerError, err.Error())
-		return
-	}
-	if h.registry != nil {
-		h.registry.Register(meta, bundle)
 	}
 	respondJSON(w, http.StatusCreated, releaseResponse{ReleaseBundle: bundle, Published: true})
 }
@@ -153,7 +132,7 @@ func (h *Handler) PromoteSnapshot(w http.ResponseWriter, r *http.Request) {
 		respondError(w, r, http.StatusBadRequest, "invalid JSON")
 		return
 	}
-	bundle, err := h.store.PromoteSnapshot(specID, payload.Notes)
+	bundle, err := h.workspace.PromoteSnapshot(specID, payload.Notes)
 	if err == store.ErrNotFound {
 		respondError(w, r, http.StatusNotFound, "snapshot not found")
 		return
@@ -161,14 +140,6 @@ func (h *Handler) PromoteSnapshot(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		respondError(w, r, http.StatusInternalServerError, err.Error())
 		return
-	}
-	meta, err := h.store.GetSpecMeta(specID)
-	if err != nil {
-		respondError(w, r, http.StatusInternalServerError, err.Error())
-		return
-	}
-	if h.registry != nil {
-		h.registry.Register(meta, bundle)
 	}
 	respondJSON(w, http.StatusCreated, releaseResponse{ReleaseBundle: bundle, Published: true})
 }
@@ -179,15 +150,12 @@ func (h *Handler) UnpublishSpec(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	if err := h.store.SetPublishedVersion(specID, 0); err != nil {
+	if err := h.workspace.Unpublish(specID); err != nil {
 		respondError(w, r, http.StatusInternalServerError, err.Error())
 		return
 	}
 	meta.PublishedVersion = 0
 	meta.PublishedSnapshot = false
-	if h.registry != nil {
-		h.registry.Unregister(specID)
-	}
 	respondJSON(w, http.StatusOK, meta)
 }
 
@@ -200,7 +168,7 @@ func (h *Handler) DeleteRelease(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	err := h.store.DeleteRelease(specID, version)
+	err := h.workspace.DeleteRelease(specID, version)
 	if err == store.ErrNotFound {
 		respondError(w, r, http.StatusNotFound, "release not found")
 		return

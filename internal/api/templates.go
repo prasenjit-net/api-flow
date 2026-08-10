@@ -2,14 +2,11 @@ package api
 
 import (
 	"encoding/json"
-	"fmt"
 	"net/http"
 	"sort"
-	"strconv"
 	"strings"
 	"time"
 
-	"github.com/getkin/kin-openapi/openapi3"
 	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
 
@@ -176,18 +173,15 @@ func (h *Handler) ListResponseExamples(w http.ResponseWriter, r *http.Request) {
 	if !h.specExists(w, r, specID) {
 		return
 	}
-	doc, err := h.loadSpecDocument(specID)
+	examples, err := h.workspace.ListResponseExamples(specID, operationID)
 	if err != nil {
-		respondError(w, r, http.StatusInternalServerError, err.Error())
+		status := http.StatusInternalServerError
+		if err == store.ErrNotFound || strings.Contains(err.Error(), "operation not found") {
+			status = http.StatusNotFound
+		}
+		respondError(w, r, status, err.Error())
 		return
 	}
-	operation := findOperation(doc, operationID)
-	if operation == nil {
-		respondError(w, r, http.StatusNotFound, "operation not found")
-		return
-	}
-
-	examples := extractResponseExamples(operationID, operation)
 	respondJSON(w, http.StatusOK, examples)
 }
 
@@ -206,132 +200,9 @@ func (h *Handler) validateTemplateOperation(w http.ResponseWriter, r *http.Reque
 	if operationID == "" {
 		return true
 	}
-	doc, err := h.loadSpecDocument(specID)
-	if err != nil {
-		respondError(w, r, http.StatusInternalServerError, err.Error())
-		return false
-	}
-	if findOperation(doc, operationID) == nil {
+	if _, err := h.workspace.GetOperation(specID, operationID); err != nil {
 		respondError(w, r, http.StatusUnprocessableEntity, "operation does not belong to this specification")
 		return false
 	}
 	return true
-}
-
-func findOperation(doc *openapi3.T, operationID string) *openapi3.Operation {
-	for path, pathItem := range doc.Paths.Map() {
-		for method, operation := range pathItem.Operations() {
-			if domain.MakeOpID(method, path) == operationID {
-				return operation
-			}
-		}
-	}
-	return nil
-}
-
-func extractResponseExamples(operationID string, operation *openapi3.Operation) []domain.TemplateExample {
-	if operation == nil || operation.Responses == nil {
-		return []domain.TemplateExample{}
-	}
-	var result []domain.TemplateExample
-	statuses := operation.Responses.Keys()
-	sort.Strings(statuses)
-	for _, statusText := range statuses {
-		statusCode, err := strconv.Atoi(statusText)
-		if err != nil || statusCode < 100 || statusCode > 599 {
-			continue
-		}
-		responseRef := operation.Responses.Value(statusText)
-		if responseRef == nil || responseRef.Value == nil {
-			continue
-		}
-		response := responseRef.Value
-		headers := exampleHeaders(response.Headers)
-		mediaTypes := make([]string, 0, len(response.Content))
-		for mediaType := range response.Content {
-			mediaTypes = append(mediaTypes, mediaType)
-		}
-		sort.Strings(mediaTypes)
-		for _, mediaType := range mediaTypes {
-			media := response.Content[mediaType]
-			if media == nil {
-				continue
-			}
-			exampleHeaders := cloneHeaders(headers)
-			exampleHeaders["Content-Type"] = mediaType
-			appendExample := func(key, name string, value any) {
-				if value == nil {
-					return
-				}
-				result = append(result, domain.TemplateExample{
-					ID:          fmt.Sprintf("%s:%s:%s:%s", operationID, statusText, mediaType, key),
-					Name:        name,
-					OperationID: operationID,
-					StatusCode:  statusCode,
-					MediaType:   mediaType,
-					Body:        formatExampleBody(value),
-					Headers:     cloneHeaders(exampleHeaders),
-				})
-			}
-
-			names := make([]string, 0, len(media.Examples))
-			for name := range media.Examples {
-				names = append(names, name)
-			}
-			sort.Strings(names)
-			for _, name := range names {
-				ref := media.Examples[name]
-				if ref == nil || ref.Value == nil || ref.Value.Value == nil {
-					continue
-				}
-				label := strings.TrimSpace(ref.Value.Summary)
-				if label == "" {
-					label = name
-				}
-				appendExample("named-"+name, fmt.Sprintf("%d · %s", statusCode, label), ref.Value.Value)
-			}
-			appendExample("media", fmt.Sprintf("%d · %s example", statusCode, mediaType), media.Example)
-			if media.Schema != nil && media.Schema.Value != nil {
-				schema := media.Schema.Value
-				appendExample("schema", fmt.Sprintf("%d · schema example", statusCode), schema.Example)
-				for i, value := range schema.Examples {
-					appendExample(fmt.Sprintf("schema-%d", i+1), fmt.Sprintf("%d · schema example %d", statusCode, i+1), value)
-				}
-			}
-		}
-	}
-	if result == nil {
-		return []domain.TemplateExample{}
-	}
-	return result
-}
-
-func exampleHeaders(headers openapi3.Headers) map[string]string {
-	result := map[string]string{}
-	for name, ref := range headers {
-		if ref == nil || ref.Value == nil || ref.Value.Example == nil {
-			continue
-		}
-		result[name] = fmt.Sprint(ref.Value.Example)
-	}
-	return result
-}
-
-func cloneHeaders(headers map[string]string) map[string]string {
-	result := make(map[string]string, len(headers)+1)
-	for key, value := range headers {
-		result[key] = value
-	}
-	return result
-}
-
-func formatExampleBody(value any) string {
-	if text, ok := value.(string); ok {
-		return text
-	}
-	formatted, err := json.MarshalIndent(value, "", "  ")
-	if err != nil {
-		return fmt.Sprint(value)
-	}
-	return string(formatted)
 }

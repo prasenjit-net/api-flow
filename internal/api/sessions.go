@@ -2,12 +2,12 @@ package api
 
 import (
 	"net/http"
-	"reflect"
 
 	"github.com/go-chi/chi/v5"
 
 	"github.com/prasenjit-net/api-flow/internal/domain"
 	sessionstore "github.com/prasenjit-net/api-flow/internal/sessions"
+	"github.com/prasenjit-net/api-flow/internal/store"
 )
 
 type sessionCollectionData struct {
@@ -27,7 +27,12 @@ func (h *Handler) ListSessions(w http.ResponseWriter, r *http.Request) {
 		respondError(w, r, http.StatusServiceUnavailable, "session store is unavailable")
 		return
 	}
-	respondJSON(w, http.StatusOK, h.sessions.List())
+	items, err := h.workspace.ListSessions()
+	if err != nil {
+		respondError(w, r, http.StatusServiceUnavailable, err.Error())
+		return
+	}
+	respondJSON(w, http.StatusOK, items)
 }
 
 func (h *Handler) GetSession(w http.ResponseWriter, r *http.Request) {
@@ -36,9 +41,13 @@ func (h *Handler) GetSession(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	sessionID := chi.URLParam(r, "sessionId")
-	session, ok := h.sessions.Get(sessionID)
-	if !ok {
+	session, err := h.workspace.GetSession(sessionID)
+	if err == store.ErrNotFound {
 		respondError(w, r, http.StatusNotFound, "session not found")
+		return
+	}
+	if err != nil {
+		respondError(w, r, http.StatusServiceUnavailable, err.Error())
 		return
 	}
 	data, err := h.materializeSessionData(session)
@@ -64,8 +73,11 @@ func (h *Handler) DeleteSession(w http.ResponseWriter, r *http.Request) {
 		respondError(w, r, http.StatusServiceUnavailable, "session store is unavailable")
 		return
 	}
-	if !h.sessions.Delete(chi.URLParam(r, "sessionId")) {
+	if err := h.workspace.DeleteSession(chi.URLParam(r, "sessionId")); err == store.ErrNotFound {
 		respondError(w, r, http.StatusNotFound, "session not found")
+		return
+	} else if err != nil {
+		respondError(w, r, http.StatusServiceUnavailable, err.Error())
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
@@ -77,45 +89,15 @@ func (h *Handler) PersistSession(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	sessionID := chi.URLParam(r, "sessionId")
-	session, ok := h.sessions.Get(sessionID)
-	if !ok {
+	summary, err := h.workspace.PersistSession(sessionID)
+	if err == store.ErrNotFound {
 		respondError(w, r, http.StatusNotFound, "session not found")
 		return
 	}
-	summary := sessionstore.PersistSummary{SessionID: session.ID}
-	for _, target := range sessionstore.ReplayTargets(session.Events) {
-		base, err := h.store.ListDocuments(target.SpecID, target.CollectionID)
-		if err != nil {
-			respondError(w, r, http.StatusInternalServerError, err.Error())
-			return
-		}
-		effective := sessionstore.Replay(base, session.Events, target.SpecID, target.CollectionID)
-		baseByID := documentsByID(base)
-		effectiveByID := documentsByID(effective)
-		for id := range baseByID {
-			if _, ok := effectiveByID[id]; ok {
-				continue
-			}
-			if err := h.store.DeleteDocument(target.SpecID, target.CollectionID, id); err != nil {
-				respondError(w, r, http.StatusInternalServerError, err.Error())
-				return
-			}
-			summary.Deleted++
-		}
-		for id, doc := range effectiveByID {
-			baseDoc, existed := baseByID[id]
-			if err := h.store.SaveDocument(target.SpecID, target.CollectionID, doc); err != nil {
-				respondError(w, r, http.StatusInternalServerError, err.Error())
-				return
-			}
-			if !existed {
-				summary.Inserted++
-			} else if !reflect.DeepEqual(baseDoc, doc) {
-				summary.Updated++
-			}
-		}
+	if err != nil {
+		respondError(w, r, http.StatusInternalServerError, err.Error())
+		return
 	}
-	h.sessions.Delete(sessionID)
 	respondJSON(w, http.StatusOK, summary)
 }
 
@@ -134,12 +116,4 @@ func (h *Handler) materializeSessionData(session sessionstore.Session) ([]sessio
 		})
 	}
 	return result, nil
-}
-
-func documentsByID(docs []domain.Document) map[string]domain.Document {
-	result := make(map[string]domain.Document, len(docs))
-	for _, doc := range docs {
-		result[doc.ID] = doc
-	}
-	return result
 }

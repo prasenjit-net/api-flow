@@ -15,8 +15,10 @@ import (
 	"github.com/prasenjit-net/api-flow/internal/config"
 	"github.com/prasenjit-net/api-flow/internal/executor"
 	"github.com/prasenjit-net/api-flow/internal/logging"
+	"github.com/prasenjit-net/api-flow/internal/mcpserver"
 	"github.com/prasenjit-net/api-flow/internal/registry"
 	"github.com/prasenjit-net/api-flow/internal/server"
+	"github.com/prasenjit-net/api-flow/internal/service"
 	"github.com/prasenjit-net/api-flow/internal/sessions"
 	"github.com/prasenjit-net/api-flow/internal/store"
 	"github.com/prasenjit-net/api-flow/internal/version"
@@ -60,6 +62,14 @@ func runServe(cmd *cobra.Command, args []string) error {
 	exec := executor.New(fileStore, sessionManager)
 	reg := registry.New(fileStore, exec)
 	reg.LoadFromStore()
+	workspace := service.New(cfg, fileStore, reg, sessionManager)
+	var mcpHandler http.Handler
+	if cfg.MCP.HTTP.Enabled {
+		if cfg.MCP.HTTP.BearerToken == "" {
+			return fmt.Errorf("mcp HTTP requires APP_MCP_HTTP_BEARER_TOKEN")
+		}
+		mcpHandler = mcpserver.BearerAuth(mcpserver.HTTPHandler(mcpserver.New(workspace, mcpserver.Options{Version: buildInfo.Version})), cfg.MCP.HTTP.BearerToken)
+	}
 
 	appServer, err := server.New(cfg, logger, buildInfo, server.Options{
 		DevMode:  devMode,
@@ -67,6 +77,7 @@ func runServe(cmd *cobra.Command, args []string) error {
 		Store:    fileStore,
 		Registry: reg,
 		Sessions: sessionManager,
+		MCP:      mcpHandler,
 	})
 	if err != nil {
 		return err

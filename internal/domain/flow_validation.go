@@ -432,8 +432,8 @@ func validateContextSource(source string, nodesByName map[string]Node) string {
 			return "request source must include a field path"
 		}
 	case "nodes":
-		if len(parts) < 3 {
-			return "node source must use nodes.<node-name>.<output-path>"
+		if len(parts) < 2 || strings.TrimSpace(parts[1]) == "" {
+			return "node source must use nodes.<node-name> or nodes.<node-name>.<output-path>"
 		}
 		if _, exists := nodesByName[parts[1]]; !exists {
 			return fmt.Sprintf("referenced node %q does not exist", parts[1])

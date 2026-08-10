@@ -1,3 +1,4 @@
+import { useState } from 'react'
 import { Link } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 import {
@@ -6,10 +7,13 @@ import {
   BarChart3,
   CheckCircle2,
   Clock3,
-  Code2,
-  FileCode,
-  FileJson,
-  GitBranch,
+	Code2,
+	Copy,
+	FileCode,
+	FileJson,
+	GitBranch,
+	Check,
+	PlugZap,
   RadioTower,
   Route,
 } from 'lucide-react'
@@ -64,7 +68,71 @@ function latestTrace(traces: TraceSummary[]) {
     .sort((a, b) => new Date(b.startedAt).getTime() - new Date(a.startedAt).getTime())[0]
 }
 
+const mcpClientGuides = [
+  {
+    id: 'codex',
+    label: 'Codex',
+    location: '~/.codex/config.toml',
+    config: `[mcp_servers.api_flow]
+command = "api-flow"
+args = ["mcp"]`,
+    href: 'https://developers.openai.com/codex/mcp/',
+  },
+  {
+    id: 'claude-code',
+    label: 'Claude Code',
+    location: 'Terminal',
+    config: 'claude mcp add --scope project api-flow -- api-flow mcp',
+    href: 'https://docs.anthropic.com/en/docs/claude-code/mcp',
+  },
+  {
+    id: 'claude-desktop',
+    label: 'Claude Desktop',
+    location: 'claude_desktop_config.json',
+    config: `{
+  "mcpServers": {
+    "api-flow": {
+      "command": "api-flow",
+      "args": ["mcp"]
+    }
+  }
+}`,
+    href: 'https://modelcontextprotocol.io/docs/learn/architecture',
+  },
+  {
+    id: 'vscode',
+    label: 'VS Code',
+    location: '.vscode/mcp.json',
+    config: `{
+  "servers": {
+    "api-flow": {
+      "type": "stdio",
+      "command": "api-flow",
+      "args": ["mcp"],
+      "cwd": "${'${workspaceFolder}'}"
+    }
+  }
+}`,
+    href: 'https://code.visualstudio.com/docs/agents/reference/mcp-configuration',
+  },
+  {
+    id: 'http',
+    label: 'Remote HTTP',
+    location: 'Client MCP settings',
+    config: `{
+  "type": "http",
+  "url": "https://your-api-flow.example/mcp",
+  "headers": {
+    "Authorization": "Bearer <APP_MCP_HTTP_BEARER_TOKEN>"
+  }
+}`,
+    href: 'https://modelcontextprotocol.io/specification/2025-11-25/basic/transports',
+  },
+] as const
+
 export default function OverviewPage() {
+	const [activeMCPClient, setActiveMCPClient] = useState<(typeof mcpClientGuides)[number]['id']>('codex')
+	const [copiedMCPClient, setCopiedMCPClient] = useState<string | null>(null)
   const { data, isLoading, error } = useQuery({
     queryKey: ['overview'],
     queryFn: loadOverview,
@@ -87,6 +155,12 @@ export default function OverviewPage() {
   const failedTraces = traces.filter(trace => trace.error || trace.statusCode >= 400).length
   const avgTraceDuration = average(traces.map(trace => trace.durationMs))
   const latest = latestTrace(traces)
+	const activeMCPGuide = mcpClientGuides.find(guide => guide.id === activeMCPClient) ?? mcpClientGuides[0]
+	const copyMCPGuide = async () => {
+		await navigator.clipboard.writeText(activeMCPGuide.config)
+		setCopiedMCPClient(activeMCPGuide.id)
+		window.setTimeout(() => setCopiedMCPClient(null), 1800)
+	}
 
   const operationsByMethod = operations.reduce<Record<string, Operation[]>>((acc, operation) => {
     const method = operation.method || 'OTHER'
@@ -224,6 +298,53 @@ export default function OverviewPage() {
                 )}
               </section>
             </div>
+
+            <section className="border-y border-slate-200 bg-white dark:border-slate-800 dark:bg-slate-900">
+              <div className="flex flex-col gap-4 px-5 py-4 lg:flex-row lg:items-start lg:justify-between">
+                <div className="min-w-0">
+                  <div className="flex items-center gap-2">
+                    <PlugZap className="h-4 w-4 text-blue-600 dark:text-blue-400" />
+                    <h2 className="text-sm font-semibold text-slate-800 dark:text-slate-100">Connect an agent</h2>
+                  </div>
+                  <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">Use the local stdio server for this workspace, or configure the protected HTTP endpoint for remote agents.</p>
+                </div>
+                <a href="https://modelcontextprotocol.io/docs/learn/architecture" target="_blank" rel="noreferrer" className="w-fit text-xs text-blue-600 hover:underline dark:text-blue-400">MCP reference</a>
+              </div>
+              <div className="border-t border-slate-200 px-5 py-4 dark:border-slate-800">
+                <div className="mb-3 flex gap-1 overflow-x-auto" role="tablist" aria-label="MCP client setup">
+                  {mcpClientGuides.map(guide => (
+                    <button
+                      key={guide.id}
+                      type="button"
+                      role="tab"
+                      aria-selected={activeMCPGuide.id === guide.id}
+                      onClick={() => setActiveMCPClient(guide.id)}
+                      className={`shrink-0 rounded px-3 py-1.5 text-xs font-semibold transition-colors ${activeMCPGuide.id === guide.id ? 'bg-slate-900 text-white dark:bg-slate-100 dark:text-slate-900' : 'text-slate-500 hover:bg-slate-100 dark:text-slate-400 dark:hover:bg-slate-800'}`}
+                    >
+                      {guide.label}
+                    </button>
+                  ))}
+                </div>
+                <div className="grid gap-3 lg:grid-cols-[180px_minmax(0,1fr)] lg:items-start">
+                  <div className="text-xs text-slate-500 dark:text-slate-400">
+                    <span className="block font-medium text-slate-700 dark:text-slate-300">Add to {activeMCPGuide.location}</span>
+                    <a href={activeMCPGuide.href} target="_blank" rel="noreferrer" className="mt-1 inline-block text-blue-600 hover:underline dark:text-blue-400">Client documentation</a>
+                  </div>
+                  <div className="relative min-w-0 overflow-hidden rounded border border-slate-200 bg-slate-950 dark:border-slate-700">
+                    <pre className="overflow-x-auto p-3 pr-12 text-xs leading-5 text-slate-100"><code>{activeMCPGuide.config}</code></pre>
+                    <button
+                      type="button"
+                      onClick={() => void copyMCPGuide()}
+                      className="absolute right-2 top-2 rounded p-1.5 text-slate-300 hover:bg-white/10 hover:text-white"
+                      title="Copy configuration"
+                      aria-label="Copy configuration"
+                    >
+                      {copiedMCPClient === activeMCPGuide.id ? <Check className="h-3.5 w-3.5 text-emerald-400" /> : <Copy className="h-3.5 w-3.5" />}
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </section>
 
             <section className="rounded-lg border border-slate-200 bg-white shadow-sm dark:border-slate-800 dark:bg-slate-900">
               <div className="flex items-center justify-between border-b border-slate-200 px-5 py-3.5 dark:border-slate-800">
