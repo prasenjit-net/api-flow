@@ -239,151 +239,173 @@ func (w *Workspace) SaveDesign(kind, specID, parentID, id string, payload any) (
 	now := time.Now().UTC()
 	switch kind {
 	case "flow":
-		var flow domain.Flow
-		if err := decode(payload, &flow); err != nil {
-			return nil, err
-		}
-		flow.SpecID, flow.OperationID = specID, id
-		flow = domain.NormalizeFlow(flow)
-		if err := w.validateFlow(flow); err != nil {
-			return nil, err
-		}
-		return flow, w.store.SaveFlow(flow)
+		return w.saveFlow(specID, id, payload)
 	case "template":
-		var template domain.Template
-		if err := decode(payload, &template); err != nil {
-			return nil, err
-		}
-		if strings.TrimSpace(template.Name) == "" {
-			return nil, fmt.Errorf("template name is required")
-		}
-		if template.OperationID != "" {
-			if _, err := w.GetOperation(specID, template.OperationID); err != nil {
-				return nil, fmt.Errorf("template operation does not belong to this specification")
-			}
-		}
-		if id == "" {
-			id = uuid.NewString()
-			template.CreatedAt = now
-		} else if existing, err := w.store.GetTemplate(specID, id); err == nil {
-			template.CreatedAt = existing.CreatedAt
-		} else {
-			template.CreatedAt = now
-		}
-		template.ID, template.SpecID, template.UpdatedAt = id, specID, now
-		if template.StatusCode == 0 {
-			template.StatusCode = 200
-		}
-		if template.Headers == nil {
-			template.Headers = map[string]string{}
-		}
-		return template, w.store.SaveTemplate(specID, template)
+		return w.saveTemplate(specID, id, payload, now)
 	case "script":
-		var script domain.Script
-		if err := decode(payload, &script); err != nil {
-			return nil, err
-		}
-		if strings.TrimSpace(script.Name) == "" || strings.TrimSpace(script.Source) == "" {
-			return nil, fmt.Errorf("script name and source are required")
-		}
-		if err := executor.ValidateStarlarkSource(script.Name, script.Source); err != nil {
-			return nil, fmt.Errorf("invalid Starlark script: %w", err)
-		}
-		if id == "" {
-			id = uuid.NewString()
-			script.CreatedAt = now
-		} else if existing, err := w.store.GetScript(specID, id); err == nil {
-			script.CreatedAt = existing.CreatedAt
-		} else {
-			script.CreatedAt = now
-		}
-		script.ID, script.SpecID, script.UpdatedAt = id, specID, now
-		return script, w.store.SaveScript(specID, script)
+		return w.saveScript(specID, id, payload, now)
 	case "collection":
-		var collection domain.Collection
-		if err := decode(payload, &collection); err != nil {
-			return nil, err
-		}
-		if strings.TrimSpace(collection.Name) == "" {
-			return nil, fmt.Errorf("collection name is required")
-		}
-		if id == "" {
-			id = uuid.NewString()
-			collection.CreatedAt = now
-		} else if existing, err := w.store.GetCollection(specID, id); err == nil {
-			collection.CreatedAt = existing.CreatedAt
-		} else {
-			collection.CreatedAt = now
-		}
-		collection.ID, collection.UpdatedAt = id, now
-		return collection, w.store.SaveCollection(specID, collection)
+		return w.saveCollection(specID, id, payload, now)
 	case "document":
-		var document domain.Document
-		if err := decode(payload, &document); err != nil {
-			return nil, err
-		}
-		if _, err := w.store.GetCollection(specID, parentID); err != nil {
-			return nil, err
-		}
-		if id == "" {
-			id = uuid.NewString()
-			document.CreatedAt = now
-		} else if existing, err := w.store.GetDocument(specID, parentID, id); err == nil {
-			document.CreatedAt = existing.CreatedAt
-		} else {
-			document.CreatedAt = now
-		}
-		document.ID, document.UpdatedAt = id, now
-		return document, w.store.SaveDocument(specID, parentID, document)
+		return w.saveDocument(specID, parentID, id, payload, now)
 	case "test_plan":
-		var plan domain.TestPlan
-		if err := decode(payload, &plan); err != nil {
-			return nil, err
-		}
-		if strings.TrimSpace(plan.Name) == "" {
-			return nil, fmt.Errorf("test plan name is required")
-		}
-		if id == "" {
-			id = uuid.NewString()
-			plan.CreatedAt = now
-		} else if existing, err := w.store.GetTestPlan(id); err == nil {
-			plan.CreatedAt = existing.CreatedAt
-		} else {
-			plan.CreatedAt = now
-		}
-		plan.ID, plan.UpdatedAt = id, now
-		return plan, w.store.SaveTestPlan(plan)
+		return w.saveTestPlan(id, payload, now)
 	case "test_request":
-		var request domain.TestPlanRequest
-		if err := decode(payload, &request); err != nil {
-			return nil, err
-		}
-		if strings.TrimSpace(request.Name) == "" || strings.TrimSpace(request.SpecID) == "" || strings.TrimSpace(request.OperationID) == "" {
-			return nil, fmt.Errorf("request name, specId, and operationId are required")
-		}
-		if strings.TrimSpace(request.Method) == "" || strings.TrimSpace(request.Path) == "" {
-			return nil, fmt.Errorf("request method and path are required")
-		}
-		if _, err := w.store.GetTestPlan(parentID); err != nil {
-			return nil, err
-		}
-		operation, err := w.GetOperation(request.SpecID, request.OperationID)
-		if err != nil || !strings.EqualFold(operation.Method, request.Method) || operation.Path != request.Path {
-			return nil, fmt.Errorf("request operation does not belong to the selected specification")
-		}
-		if id == "" {
-			id = uuid.NewString()
-			request.CreatedAt = now
-		} else if existing, err := w.store.GetTestPlanRequest(parentID, id); err == nil {
-			request.CreatedAt = existing.CreatedAt
-		} else {
-			request.CreatedAt = now
-		}
-		request.ID, request.PlanID, request.UpdatedAt = id, parentID, now
-		return request, w.store.SaveTestPlanRequest(parentID, request)
+		return w.saveTestRequest(parentID, id, payload, now)
 	default:
 		return nil, fmt.Errorf("unsupported design kind %q", kind)
 	}
+}
+
+func (w *Workspace) saveFlow(specID, operationID string, payload any) (domain.Flow, error) {
+	var flow domain.Flow
+	if err := decode(payload, &flow); err != nil {
+		return domain.Flow{}, err
+	}
+	flow.SpecID, flow.OperationID = specID, operationID
+	flow = domain.NormalizeFlow(flow)
+	if err := w.validateFlow(flow); err != nil {
+		return domain.Flow{}, err
+	}
+	return flow, w.store.SaveFlow(flow)
+}
+
+func (w *Workspace) saveTemplate(specID, id string, payload any, now time.Time) (domain.Template, error) {
+	var template domain.Template
+	if err := decode(payload, &template); err != nil {
+		return domain.Template{}, err
+	}
+	if strings.TrimSpace(template.Name) == "" {
+		return domain.Template{}, fmt.Errorf("template name is required")
+	}
+	if template.OperationID != "" {
+		if _, err := w.GetOperation(specID, template.OperationID); err != nil {
+			return domain.Template{}, fmt.Errorf("template operation does not belong to this specification")
+		}
+	}
+	if id == "" {
+		id, template.CreatedAt = uuid.NewString(), now
+	} else if existing, err := w.store.GetTemplate(specID, id); err == nil {
+		template.CreatedAt = existing.CreatedAt
+	} else {
+		template.CreatedAt = now
+	}
+	template.ID, template.SpecID, template.UpdatedAt = id, specID, now
+	if template.StatusCode == 0 {
+		template.StatusCode = 200
+	}
+	if template.Headers == nil {
+		template.Headers = map[string]string{}
+	}
+	return template, w.store.SaveTemplate(specID, template)
+}
+
+func (w *Workspace) saveScript(specID, id string, payload any, now time.Time) (domain.Script, error) {
+	var script domain.Script
+	if err := decode(payload, &script); err != nil {
+		return domain.Script{}, err
+	}
+	if strings.TrimSpace(script.Name) == "" || strings.TrimSpace(script.Source) == "" {
+		return domain.Script{}, fmt.Errorf("script name and source are required")
+	}
+	if err := executor.ValidateStarlarkSource(script.Name, script.Source); err != nil {
+		return domain.Script{}, fmt.Errorf("invalid Starlark script: %w", err)
+	}
+	if id == "" {
+		id, script.CreatedAt = uuid.NewString(), now
+	} else if existing, err := w.store.GetScript(specID, id); err == nil {
+		script.CreatedAt = existing.CreatedAt
+	} else {
+		script.CreatedAt = now
+	}
+	script.ID, script.SpecID, script.UpdatedAt = id, specID, now
+	return script, w.store.SaveScript(specID, script)
+}
+
+func (w *Workspace) saveCollection(specID, id string, payload any, now time.Time) (domain.Collection, error) {
+	var collection domain.Collection
+	if err := decode(payload, &collection); err != nil {
+		return domain.Collection{}, err
+	}
+	if strings.TrimSpace(collection.Name) == "" {
+		return domain.Collection{}, fmt.Errorf("collection name is required")
+	}
+	if id == "" {
+		id, collection.CreatedAt = uuid.NewString(), now
+	} else if existing, err := w.store.GetCollection(specID, id); err == nil {
+		collection.CreatedAt = existing.CreatedAt
+	} else {
+		collection.CreatedAt = now
+	}
+	collection.ID, collection.UpdatedAt = id, now
+	return collection, w.store.SaveCollection(specID, collection)
+}
+
+func (w *Workspace) saveDocument(specID, collectionID, id string, payload any, now time.Time) (domain.Document, error) {
+	var document domain.Document
+	if err := decode(payload, &document); err != nil {
+		return domain.Document{}, err
+	}
+	if _, err := w.store.GetCollection(specID, collectionID); err != nil {
+		return domain.Document{}, err
+	}
+	if id == "" {
+		id, document.CreatedAt = uuid.NewString(), now
+	} else if existing, err := w.store.GetDocument(specID, collectionID, id); err == nil {
+		document.CreatedAt = existing.CreatedAt
+	} else {
+		document.CreatedAt = now
+	}
+	document.ID, document.UpdatedAt = id, now
+	return document, w.store.SaveDocument(specID, collectionID, document)
+}
+
+func (w *Workspace) saveTestPlan(id string, payload any, now time.Time) (domain.TestPlan, error) {
+	var plan domain.TestPlan
+	if err := decode(payload, &plan); err != nil {
+		return domain.TestPlan{}, err
+	}
+	if strings.TrimSpace(plan.Name) == "" {
+		return domain.TestPlan{}, fmt.Errorf("test plan name is required")
+	}
+	if id == "" {
+		id, plan.CreatedAt = uuid.NewString(), now
+	} else if existing, err := w.store.GetTestPlan(id); err == nil {
+		plan.CreatedAt = existing.CreatedAt
+	} else {
+		plan.CreatedAt = now
+	}
+	plan.ID, plan.UpdatedAt = id, now
+	return plan, w.store.SaveTestPlan(plan)
+}
+
+func (w *Workspace) saveTestRequest(planID, id string, payload any, now time.Time) (domain.TestPlanRequest, error) {
+	var request domain.TestPlanRequest
+	if err := decode(payload, &request); err != nil {
+		return domain.TestPlanRequest{}, err
+	}
+	if strings.TrimSpace(request.Name) == "" || strings.TrimSpace(request.SpecID) == "" || strings.TrimSpace(request.OperationID) == "" {
+		return domain.TestPlanRequest{}, fmt.Errorf("request name, specId, and operationId are required")
+	}
+	if strings.TrimSpace(request.Method) == "" || strings.TrimSpace(request.Path) == "" {
+		return domain.TestPlanRequest{}, fmt.Errorf("request method and path are required")
+	}
+	if _, err := w.store.GetTestPlan(planID); err != nil {
+		return domain.TestPlanRequest{}, err
+	}
+	operation, err := w.GetOperation(request.SpecID, request.OperationID)
+	if err != nil || !strings.EqualFold(operation.Method, request.Method) || operation.Path != request.Path {
+		return domain.TestPlanRequest{}, fmt.Errorf("request operation does not belong to the selected specification")
+	}
+	if id == "" {
+		id, request.CreatedAt = uuid.NewString(), now
+	} else if existing, err := w.store.GetTestPlanRequest(planID, id); err == nil {
+		request.CreatedAt = existing.CreatedAt
+	} else {
+		request.CreatedAt = now
+	}
+	request.ID, request.PlanID, request.UpdatedAt = id, planID, now
+	return request, w.store.SaveTestPlanRequest(planID, request)
 }
 
 func (w *Workspace) DeleteDesign(kind, specID, parentID, id string) error {
@@ -503,34 +525,52 @@ func (w *Workspace) PersistSession(id string) (sessions.PersistSummary, error) {
 	}
 	summary := sessions.PersistSummary{SessionID: id}
 	for _, target := range sessions.ReplayTargets(session.Events) {
-		base, err := w.store.ListDocuments(target.SpecID, target.CollectionID)
-		if err != nil {
+		if err := w.persistSessionTarget(session.Events, target, &summary); err != nil {
 			return summary, err
-		}
-		effective := sessions.Replay(base, session.Events, target.SpecID, target.CollectionID)
-		baseByID, effectiveByID := documentsByID(base), documentsByID(effective)
-		for documentID := range baseByID {
-			if _, ok := effectiveByID[documentID]; !ok {
-				if err := w.store.DeleteDocument(target.SpecID, target.CollectionID, documentID); err != nil {
-					return summary, err
-				}
-				summary.Deleted++
-			}
-		}
-		for documentID, document := range effectiveByID {
-			before, existed := baseByID[documentID]
-			if err := w.store.SaveDocument(target.SpecID, target.CollectionID, document); err != nil {
-				return summary, err
-			}
-			if !existed {
-				summary.Inserted++
-			} else if !reflect.DeepEqual(before, document) {
-				summary.Updated++
-			}
 		}
 	}
 	w.sessions.Delete(id)
 	return summary, nil
+}
+
+func (w *Workspace) persistSessionTarget(events []sessions.Event, target sessions.Target, summary *sessions.PersistSummary) error {
+	base, err := w.store.ListDocuments(target.SpecID, target.CollectionID)
+	if err != nil {
+		return err
+	}
+	effective := sessions.Replay(base, events, target.SpecID, target.CollectionID)
+	baseByID, effectiveByID := documentsByID(base), documentsByID(effective)
+	if err := w.deleteMissingDocuments(target, baseByID, effectiveByID, summary); err != nil {
+		return err
+	}
+	return w.saveEffectiveDocuments(target, baseByID, effectiveByID, summary)
+}
+
+func (w *Workspace) deleteMissingDocuments(target sessions.Target, base, effective map[string]domain.Document, summary *sessions.PersistSummary) error {
+	for documentID := range base {
+		if _, exists := effective[documentID]; !exists {
+			if err := w.store.DeleteDocument(target.SpecID, target.CollectionID, documentID); err != nil {
+				return err
+			}
+			summary.Deleted++
+		}
+	}
+	return nil
+}
+
+func (w *Workspace) saveEffectiveDocuments(target sessions.Target, base, effective map[string]domain.Document, summary *sessions.PersistSummary) error {
+	for documentID, document := range effective {
+		before, existed := base[documentID]
+		if err := w.store.SaveDocument(target.SpecID, target.CollectionID, document); err != nil {
+			return err
+		}
+		if !existed {
+			summary.Inserted++
+		} else if !reflect.DeepEqual(before, document) {
+			summary.Updated++
+		}
+	}
+	return nil
 }
 
 func (w *Workspace) DeleteSession(id string) error {
@@ -583,35 +623,61 @@ func (w *Workspace) validateFlow(flow domain.Flow) error {
 		return fmt.Errorf("flow validation failed: %s", errors[0].Message)
 	}
 	for _, node := range flow.Nodes {
-		switch node.Type {
-		case domain.NodeTypeStarlark:
-			if node.Data.ScriptID != "" {
-				if _, err := w.store.GetScript(flow.SpecID, node.Data.ScriptID); err != nil {
-					return fmt.Errorf("selected Starlark script does not exist in this specification")
-				}
-			}
-		case domain.NodeTypeDataMapper:
-			if node.Data.CollectionID != "" {
-				if _, err := w.store.GetCollection(flow.SpecID, node.Data.CollectionID); err != nil {
-					return fmt.Errorf("selected collection does not exist in this specification")
-				}
-			}
-		case domain.NodeTypeTemplate:
-			if node.Data.TemplateID != "" {
-				template, err := w.store.GetTemplate(flow.SpecID, node.Data.TemplateID)
-				if err != nil {
-					return fmt.Errorf("selected template does not exist in this specification")
-				}
-				if template.OperationID != "" && template.OperationID != flow.OperationID {
-					return fmt.Errorf("selected template is scoped to a different operation")
-				}
-			}
+		if err := w.validateNodeReferences(flow, node); err != nil {
+			return err
 		}
 	}
 	return nil
 }
 
-func decode(payload any, target any) error {
+func (w *Workspace) validateNodeReferences(flow domain.Flow, node domain.Node) error {
+	switch node.Type {
+	case domain.NodeTypeStarlark:
+		return w.validateScriptReference(flow.SpecID, node.Data.ScriptID)
+	case domain.NodeTypeDataMapper:
+		return w.validateCollectionReference(flow.SpecID, node.Data.CollectionID)
+	case domain.NodeTypeTemplate:
+		return w.validateTemplateReference(flow, node.Data.TemplateID)
+	default:
+		return nil
+	}
+}
+
+func (w *Workspace) validateScriptReference(specID, scriptID string) error {
+	if scriptID == "" {
+		return nil
+	}
+	if _, err := w.store.GetScript(specID, scriptID); err != nil {
+		return fmt.Errorf("selected Starlark script does not exist in this specification")
+	}
+	return nil
+}
+
+func (w *Workspace) validateCollectionReference(specID, collectionID string) error {
+	if collectionID == "" {
+		return nil
+	}
+	if _, err := w.store.GetCollection(specID, collectionID); err != nil {
+		return fmt.Errorf("selected collection does not exist in this specification")
+	}
+	return nil
+}
+
+func (w *Workspace) validateTemplateReference(flow domain.Flow, templateID string) error {
+	if templateID == "" {
+		return nil
+	}
+	template, err := w.store.GetTemplate(flow.SpecID, templateID)
+	if err != nil {
+		return fmt.Errorf("selected template does not exist in this specification")
+	}
+	if template.OperationID != "" && template.OperationID != flow.OperationID {
+		return fmt.Errorf("selected template is scoped to a different operation")
+	}
+	return nil
+}
+
+func decode(payload, target any) error {
 	data, err := json.Marshal(payload)
 	if err != nil {
 		return err

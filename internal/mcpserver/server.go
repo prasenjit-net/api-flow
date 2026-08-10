@@ -13,7 +13,10 @@ import (
 	"github.com/prasenjit-net/api-flow/internal/service"
 )
 
-const resourceScheme = "api-flow"
+const (
+	resourceScheme = "api-flow"
+	jsonMIMEType   = "application/json"
+)
 
 type Options struct {
 	Version string
@@ -74,15 +77,15 @@ func sameOrigin(origin string, r *http.Request) bool {
 
 func registerResources(server *mcp.Server, workspace *service.Workspace) {
 	server.AddResource(&mcp.Resource{
-		URI: "api-flow://workspace", Name: "workspace", Title: "API Flow workspace", MIMEType: "application/json",
+		URI: "api-flow://workspace", Name: "workspace", Title: "API Flow workspace", MIMEType: jsonMIMEType,
 		Description: "Compact workspace counts and specification metadata.",
 	}, jsonResource(func() (any, error) { return workspace.Overview() }))
 	server.AddResource(&mcp.Resource{
-		URI: "api-flow://configuration", Name: "configuration", Title: "Effective configuration", MIMEType: "application/json",
+		URI: "api-flow://configuration", Name: "configuration", Title: "Effective configuration", MIMEType: jsonMIMEType,
 		Description: "Sanitized effective API Flow configuration. It is read-only.",
 	}, jsonResource(func() (any, error) { return workspace.Configuration(), nil }))
 	server.AddResourceTemplate(&mcp.ResourceTemplate{
-		URITemplate: "api-flow://specs/{specId}", Name: "spec", Title: "Specification design", MIMEType: "application/json",
+		URITemplate: "api-flow://specs/{specId}", Name: "spec", Title: "Specification design", MIMEType: jsonMIMEType,
 		Description: "A specification with its OpenAPI source and all draft design assets.",
 	}, func(_ context.Context, request *mcp.ReadResourceRequest) (*mcp.ReadResourceResult, error) {
 		u, err := url.Parse(request.Params.URI)
@@ -96,7 +99,7 @@ func registerResources(server *mcp.Server, workspace *service.Workspace) {
 		return marshalResource(request.Params.URI, value)
 	})
 	server.AddResourceTemplate(&mcp.ResourceTemplate{
-		URITemplate: "api-flow://sessions/{sessionId}", Name: "session", Title: "Session events", MIMEType: "application/json",
+		URITemplate: "api-flow://sessions/{sessionId}", Name: "session", Title: "Session events", MIMEType: jsonMIMEType,
 		Description: "A short-lived data session and its event log.",
 	}, func(_ context.Context, request *mcp.ReadResourceRequest) (*mcp.ReadResourceResult, error) {
 		u, err := url.Parse(request.Params.URI)
@@ -110,7 +113,7 @@ func registerResources(server *mcp.Server, workspace *service.Workspace) {
 		return marshalResource(request.Params.URI, value)
 	})
 	server.AddResourceTemplate(&mcp.ResourceTemplate{
-		URITemplate: "api-flow://traces/{traceId}", Name: "trace", Title: "Execution trace", MIMEType: "application/json",
+		URITemplate: "api-flow://traces/{traceId}", Name: "trace", Title: "Execution trace", MIMEType: jsonMIMEType,
 		Description: "A complete mock execution trace, including request, response, node, and edge details.",
 	}, func(_ context.Context, request *mcp.ReadResourceRequest) (*mcp.ReadResourceResult, error) {
 		u, err := url.Parse(request.Params.URI)
@@ -140,7 +143,7 @@ func marshalResource(uri string, value any) (*mcp.ReadResourceResult, error) {
 	if err != nil {
 		return nil, err
 	}
-	return &mcp.ReadResourceResult{Cacheable: mcp.Cacheable{TTLMs: 3_000, CacheScope: "private"}, Contents: []*mcp.ResourceContents{{URI: uri, MIMEType: "application/json", Text: string(data)}}}, nil
+	return &mcp.ReadResourceResult{Cacheable: mcp.Cacheable{TTLMs: 3_000, CacheScope: "private"}, Contents: []*mcp.ResourceContents{{URI: uri, MIMEType: jsonMIMEType, Text: string(data)}}}, nil
 }
 
 func resourceError(uri string, err error) error {
@@ -226,7 +229,7 @@ type traceInput struct {
 	Confirm     bool   `json:"confirm"`
 }
 
-func registerTools(server *mcp.Server, workspace *service.Workspace) {
+func registerTools(server *mcp.Server, workspace *service.Workspace) { // NOSONAR: declarative MCP tool catalog
 	readOnly := &mcp.ToolAnnotations{ReadOnlyHint: true, DestructiveHint: boolPtr(false), OpenWorldHint: boolPtr(false)}
 	write := &mcp.ToolAnnotations{ReadOnlyHint: false, DestructiveHint: boolPtr(false), OpenWorldHint: boolPtr(false)}
 	destructive := &mcp.ToolAnnotations{ReadOnlyHint: false, DestructiveHint: boolPtr(true), OpenWorldHint: boolPtr(false)}
@@ -277,13 +280,14 @@ func registerTools(server *mcp.Server, workspace *service.Workspace) {
 	mcp.AddTool(server, &mcp.Tool{Name: "operation_response_examples_list", Description: "Extract response examples declared by one OpenAPI operation. Use these when creating response templates.", Annotations: readOnly}, func(_ context.Context, _ *mcp.CallToolRequest, input operationInput) (*mcp.CallToolResult, any, error) {
 		return response(workspace.ListResponseExamples(input.SpecID, input.OperationID))
 	})
-	registerDesignTools(server, workspace, readOnly, write, destructive, "flow", "flow", "operation flow", false)
-	registerDesignTools(server, workspace, readOnly, write, destructive, "template", "template", "response template", true)
-	registerDesignTools(server, workspace, readOnly, write, destructive, "script", "script", "specification-scoped Starlark script", true)
-	registerDesignTools(server, workspace, readOnly, write, destructive, "collection", "collection", "specification-scoped collection", true)
-	registerDesignTools(server, workspace, readOnly, write, destructive, "document", "collection_document", "document in a collection", true)
-	registerDesignTools(server, workspace, readOnly, write, destructive, "test_plan", "test_plan", "global Test Ground plan", true)
-	registerDesignTools(server, workspace, readOnly, write, destructive, "test_request", "test_request", "request in a Test Ground plan", true)
+	registry := toolRegistry{server: server, workspace: workspace, readOnly: readOnly, write: write, destructive: destructive}
+	registry.registerDesignTools("flow", "flow", "operation flow", false)
+	registry.registerDesignTools("template", "template", "response template", true)
+	registry.registerDesignTools("script", "script", "specification-scoped Starlark script", true)
+	registry.registerDesignTools("collection", "collection", "specification-scoped collection", true)
+	registry.registerDesignTools("document", "collection_document", "document in a collection", true)
+	registry.registerDesignTools("test_plan", "test_plan", "global Test Ground plan", true)
+	registry.registerDesignTools("test_request", "test_request", "request in a Test Ground plan", true)
 
 	mcp.AddTool(server, &mcp.Tool{Name: "release_list", Description: "List immutable releases and the current replaceable snapshot.", Annotations: readOnly}, func(_ context.Context, _ *mcp.CallToolRequest, input specIDInput) (*mcp.CallToolResult, any, error) {
 		return response(workspace.ListReleases(input.SpecID))
@@ -364,27 +368,33 @@ func registerTools(server *mcp.Server, workspace *service.Workspace) {
 	})
 }
 
-func registerDesignTools(server *mcp.Server, workspace *service.Workspace, readOnly, write, destructive *mcp.ToolAnnotations, kind, prefix, asset string, canDelete bool) {
-	mcp.AddTool(server, &mcp.Tool{Name: prefix + "_list", Description: "List " + asset + " assets in the selected scope.", Annotations: readOnly}, func(_ context.Context, _ *mcp.CallToolRequest, input designScopeInput) (*mcp.CallToolResult, any, error) {
-		return response(workspace.ListDesign(kind, input.SpecID, input.ParentID))
+type toolRegistry struct {
+	server                       *mcp.Server
+	workspace                    *service.Workspace
+	readOnly, write, destructive *mcp.ToolAnnotations
+}
+
+func (r toolRegistry) registerDesignTools(kind, prefix, asset string, canDelete bool) {
+	mcp.AddTool(r.server, &mcp.Tool{Name: prefix + "_list", Description: "List " + asset + " assets in the selected scope.", Annotations: r.readOnly}, func(_ context.Context, _ *mcp.CallToolRequest, input designScopeInput) (*mcp.CallToolResult, any, error) {
+		return response(r.workspace.ListDesign(kind, input.SpecID, input.ParentID))
 	})
-	mcp.AddTool(server, &mcp.Tool{Name: prefix + "_get", Description: "Read one " + asset + " by ID.", Annotations: readOnly}, func(_ context.Context, _ *mcp.CallToolRequest, input designScopeInput) (*mcp.CallToolResult, any, error) {
-		return response(workspace.GetDesign(kind, input.SpecID, input.ParentID, input.ID))
+	mcp.AddTool(r.server, &mcp.Tool{Name: prefix + "_get", Description: "Read one " + asset + " by ID.", Annotations: r.readOnly}, func(_ context.Context, _ *mcp.CallToolRequest, input designScopeInput) (*mcp.CallToolResult, any, error) {
+		return response(r.workspace.GetDesign(kind, input.SpecID, input.ParentID, input.ID))
 	})
-	mcp.AddTool(server, &mcp.Tool{Name: prefix + "_save", Description: "Create or update one " + asset + ". Omit id to create; provide id to update. The full replacement payload is required.", Annotations: write}, func(_ context.Context, _ *mcp.CallToolRequest, input saveDesignScopeInput) (*mcp.CallToolResult, any, error) {
+	mcp.AddTool(r.server, &mcp.Tool{Name: prefix + "_save", Description: "Create or update one " + asset + ". Omit id to create; provide id to update. The full replacement payload is required.", Annotations: r.write}, func(_ context.Context, _ *mcp.CallToolRequest, input saveDesignScopeInput) (*mcp.CallToolResult, any, error) {
 		if result := confirmation(input.Confirm); result != nil {
 			return result, nil, nil
 		}
-		return response(workspace.SaveDesign(kind, input.SpecID, input.ParentID, input.ID, input.Payload))
+		return response(r.workspace.SaveDesign(kind, input.SpecID, input.ParentID, input.ID, input.Payload))
 	})
 	if !canDelete {
 		return
 	}
-	mcp.AddTool(server, &mcp.Tool{Name: prefix + "_delete", Description: "Permanently delete one " + asset + " by ID.", Annotations: destructive}, func(_ context.Context, _ *mcp.CallToolRequest, input deleteDesignScopeInput) (*mcp.CallToolResult, any, error) {
+	mcp.AddTool(r.server, &mcp.Tool{Name: prefix + "_delete", Description: "Permanently delete one " + asset + " by ID.", Annotations: r.destructive}, func(_ context.Context, _ *mcp.CallToolRequest, input deleteDesignScopeInput) (*mcp.CallToolResult, any, error) {
 		if result := confirmation(input.Confirm); result != nil {
 			return result, nil, nil
 		}
-		return response(nil, workspace.DeleteDesign(kind, input.SpecID, input.ParentID, input.ID))
+		return response(nil, r.workspace.DeleteDesign(kind, input.SpecID, input.ParentID, input.ID))
 	})
 }
 

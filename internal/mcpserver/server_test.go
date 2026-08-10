@@ -16,7 +16,7 @@ import (
 	"github.com/prasenjit-net/api-flow/internal/store"
 )
 
-func TestServerExposesWorkspaceResourcesAndTools(t *testing.T) {
+func TestServerExposesWorkspaceResourcesAndTools(t *testing.T) { // NOSONAR: integration scenario keeps setup and assertions together
 	dataStore, err := store.New(t.TempDir())
 	if err != nil {
 		t.Fatalf("create store: %v", err)
