@@ -21,3 +21,8 @@ ui:
 
 data:
   dir: data
+
+mcp:
+  http:
+    enabled: true
+    bearerToken: 5cc9d71dfd1eb0fb2894c08f50b3361190a05fc018bfd82d2049c1417891c572
