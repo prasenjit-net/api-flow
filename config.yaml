@@ -26,3 +26,11 @@ mcp:
   http:
     enabled: true
     bearerToken: 5cc9d71dfd1eb0fb2894c08f50b3361190a05fc018bfd82d2049c1417891c572
+
+agent:
+  enabled: true
+  model: gpt-5-mini
+  apiKeyEnv: OPENAI_API_KEY
+  maxIterations: 12
+  maxTokens: 4096
+  timeout: 2m

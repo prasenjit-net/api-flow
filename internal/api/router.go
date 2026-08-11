@@ -8,6 +8,7 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
 
+	"github.com/prasenjit-net/api-flow/internal/agentchat"
 	"github.com/prasenjit-net/api-flow/internal/config"
 	"github.com/prasenjit-net/api-flow/internal/registry"
 	"github.com/prasenjit-net/api-flow/internal/sessions"
@@ -16,12 +17,22 @@ import (
 )
 
 func NewRouter(cfg config.Config, logger *slog.Logger, build version.Info, s store.Store, reg *registry.Registry, managers ...*sessions.Manager) http.Handler {
+	return newRouter(cfg, logger, build, s, reg, nil, managers...)
+}
+
+func NewRouterWithAgent(cfg config.Config, logger *slog.Logger, build version.Info, s store.Store, reg *registry.Registry, agent *agentchat.Service, managers ...*sessions.Manager) http.Handler {
+	return newRouter(cfg, logger, build, s, reg, agent, managers...)
+}
+
+func newRouter(cfg config.Config, logger *slog.Logger, build version.Info, s store.Store, reg *registry.Registry, agent *agentchat.Service, managers ...*sessions.Manager) http.Handler {
 	r := chi.NewRouter()
 	r.Use(middleware.Timeout(30 * time.Second))
 
 	h := NewHandler(cfg, build, s, reg, managers...)
+	h.SetAgent(agent)
 
 	r.Get("/meta", h.Meta)
+	r.Post("/agent/chat", h.AgentChat)
 
 	r.Route("/specs", func(r chi.Router) {
 		r.Get("/", h.ListSpecs)

@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { NavLink, Outlet } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
-import { Activity, BarChart3, FileJson, FlaskConical, Layers, Menu, Moon, Monitor, Sun, X } from 'lucide-react'
+import { Activity, BarChart3, FileJson, FlaskConical, Layers, Menu, Moon, Monitor, Sparkles, Sun, X } from 'lucide-react'
 import clsx from 'clsx'
 import { LogoFull } from './Logo'
 import { metaApi } from '../services/api'
@@ -15,6 +15,7 @@ const navItems = [
   { to: '/test-ground', label: 'Test Ground', icon: FlaskConical },
   { to: '/sessions', label: 'Sessions', icon: Layers },
   { to: '/traces', label: 'Traces', icon: Activity },
+  { to: '/assistant', label: 'Assistant', icon: Sparkles },
 ]
 
 const getInitialTheme = (): ThemeMode => {
