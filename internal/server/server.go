@@ -14,6 +14,7 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
 
+	"github.com/prasenjit-net/api-flow/internal/agentchat"
 	"github.com/prasenjit-net/api-flow/internal/api"
 	"github.com/prasenjit-net/api-flow/internal/config"
 	"github.com/prasenjit-net/api-flow/internal/registry"
@@ -29,6 +30,7 @@ type Options struct {
 	Registry *registry.Registry
 	Sessions *sessions.Manager
 	MCP      http.Handler
+	Agent    *agentchat.Service
 }
 
 type App struct {
@@ -51,7 +53,7 @@ func (a *App) Handler() http.Handler {
 	r.Use(middleware.Heartbeat("/_health"))
 	r.Use(requestLogger(a.logger))
 
-	r.Mount("/_api", api.NewRouter(a.cfg, a.logger, a.build, a.options.Store, a.options.Registry, a.options.Sessions))
+	r.Mount("/_api", api.NewRouterWithAgent(a.cfg, a.logger, a.build, a.options.Store, a.options.Registry, a.options.Agent, a.options.Sessions))
 	if a.options.MCP != nil {
 		r.Mount("/mcp", a.options.MCP)
 	}

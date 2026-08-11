@@ -12,6 +12,7 @@ import (
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
 
+	"github.com/prasenjit-net/api-flow/internal/agentchat"
 	"github.com/prasenjit-net/api-flow/internal/config"
 	"github.com/prasenjit-net/api-flow/internal/executor"
 	"github.com/prasenjit-net/api-flow/internal/logging"
@@ -63,6 +64,10 @@ func runServe(cmd *cobra.Command, args []string) error {
 	reg := registry.New(fileStore, exec)
 	reg.LoadFromStore()
 	workspace := service.New(cfg, fileStore, reg, sessionManager)
+	chatAgent, err := agentchat.New(cfg.Agent, workspace)
+	if err != nil {
+		return fmt.Errorf("init AI agent: %w", err)
+	}
 	var mcpHandler http.Handler
 	if cfg.MCP.HTTP.Enabled {
 		if cfg.MCP.HTTP.BearerToken == "" {
@@ -78,6 +83,7 @@ func runServe(cmd *cobra.Command, args []string) error {
 		Registry: reg,
 		Sessions: sessionManager,
 		MCP:      mcpHandler,
+		Agent:    chatAgent,
 	})
 	if err != nil {
 		return err

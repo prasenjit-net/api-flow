@@ -16,6 +16,7 @@ const SessionsPage = lazy(() => import('./pages/SessionsPage'))
 const SessionDetailPage = lazy(() => import('./pages/SessionDetailPage'))
 const TracesPage = lazy(() => import('./pages/TracesPage'))
 const TraceDetailPage = lazy(() => import('./pages/TraceDetailPage'))
+const AssistantPage = lazy(() => import('./pages/AssistantPage'))
 
 function PageFallback() {
   return <div className="flex h-40 items-center justify-center text-sm text-slate-400">Loading...</div>
@@ -70,6 +71,7 @@ function App() {
           <Route path="sessions/:sessionId" element={<SessionDetailPage />} />
           <Route path="traces" element={<TracesPage />} />
           <Route path="traces/:traceId" element={<TraceDetailPage />} />
+          <Route path="assistant" element={<AssistantPage />} />
         </Route>
       </Routes>
     </Suspense>

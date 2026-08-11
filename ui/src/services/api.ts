@@ -101,6 +101,18 @@ export const metaApi = {
   get: () => request<MetaResponse>('/meta'),
 }
 
+export type AgentEvent = { type: 'text' | 'tool_start' | 'tool_result' | 'error'; text?: string; tool?: string; data?: unknown }
+export const agentApi = {
+  chat: async (prompt: string, onEvent: (event: AgentEvent) => void, signal?: AbortSignal) => {
+    const response = await fetch(`${BASE}/agent/chat`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ prompt }), signal })
+    if (!response.ok || !response.body) await handle<never>(response)
+    const body = response.body
+    if (!body) throw new ApiError(0, 'Streaming response is unavailable')
+    const reader = body.getReader(); const decoder = new TextDecoder(); let buffer = ''
+    for (;;) { const { value, done } = await reader.read(); if (done) break; buffer += decoder.decode(value, { stream: true }); const lines = buffer.split('\n'); buffer = lines.pop() ?? ''; for (const line of lines) if (line.startsWith('data: ')) onEvent(JSON.parse(line.slice(6)) as AgentEvent) }
+  },
+}
+
 export const specsApi = {
   list: () => request<SpecMeta[]>('/specs'),
   get: (id: string) => request<SpecDetail>(`/specs/${id}`),

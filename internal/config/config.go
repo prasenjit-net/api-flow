@@ -17,6 +17,7 @@ type Config struct {
 	UI      UIConfig      `mapstructure:"ui" yaml:"ui"`
 	Data    DataConfig    `mapstructure:"data" yaml:"data"`
 	MCP     MCPConfig     `mapstructure:"mcp" yaml:"mcp"`
+	Agent   AgentConfig   `mapstructure:"agent" yaml:"agent"`
 }
 
 type DataConfig struct {
@@ -57,6 +58,15 @@ type MCPHTTPConfig struct {
 	BearerToken string `mapstructure:"bearerToken" yaml:"bearerToken"`
 }
 
+type AgentConfig struct {
+	Enabled       bool          `mapstructure:"enabled" yaml:"enabled"`
+	Model         string        `mapstructure:"model" yaml:"model"`
+	APIKeyEnv     string        `mapstructure:"apiKeyEnv" yaml:"apiKeyEnv"`
+	MaxIterations int           `mapstructure:"maxIterations" yaml:"maxIterations"`
+	MaxTokens     int           `mapstructure:"maxTokens" yaml:"maxTokens"`
+	Timeout       time.Duration `mapstructure:"timeout" yaml:"timeout"`
+}
+
 func Default() Config {
 	return Config{
 		App: AppConfig{
@@ -83,7 +93,8 @@ func Default() Config {
 		Data: DataConfig{
 			Dir: "data",
 		},
-		MCP: MCPConfig{},
+		MCP:   MCPConfig{},
+		Agent: AgentConfig{Model: "gpt-5-mini", APIKeyEnv: "OPENAI_API_KEY", MaxIterations: 12, MaxTokens: 4096, Timeout: 2 * time.Minute},
 	}
 }
 
@@ -114,6 +125,12 @@ func SetDefaults(v *viper.Viper) {
 	v.SetDefault("data.dir", defaults.Data.Dir)
 	v.SetDefault("mcp.http.enabled", defaults.MCP.HTTP.Enabled)
 	v.SetDefault("mcp.http.bearerToken", defaults.MCP.HTTP.BearerToken)
+	v.SetDefault("agent.enabled", defaults.Agent.Enabled)
+	v.SetDefault("agent.model", defaults.Agent.Model)
+	v.SetDefault("agent.apiKeyEnv", defaults.Agent.APIKeyEnv)
+	v.SetDefault("agent.maxIterations", defaults.Agent.MaxIterations)
+	v.SetDefault("agent.maxTokens", defaults.Agent.MaxTokens)
+	v.SetDefault("agent.timeout", defaults.Agent.Timeout)
 }
 
 func Load(v *viper.Viper) (Config, error) {
@@ -187,6 +204,14 @@ mcp:
   http:
     enabled: false
     bearerToken: ""
+
+agent:
+  enabled: false
+  model: gpt-5-mini
+  apiKeyEnv: OPENAI_API_KEY
+  maxIterations: 12
+  maxTokens: 4096
+  timeout: 2m
 `
 
 const DefaultEnvExample = `APP_ENV=development
@@ -198,4 +223,7 @@ APP_LOGGING_FORMAT=text
 APP_UI_DEV_PROXY_URL=http://localhost:5173
 APP_MCP_HTTP_ENABLED=false
 APP_MCP_HTTP_BEARER_TOKEN=
+APP_AGENT_ENABLED=false
+APP_AGENT_MODEL=gpt-5-mini
+APP_AGENT_API_KEY_ENV=OPENAI_API_KEY
 `

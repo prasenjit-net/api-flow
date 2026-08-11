@@ -6,6 +6,7 @@ import (
 
 	"github.com/go-chi/chi/v5/middleware"
 
+	"github.com/prasenjit-net/api-flow/internal/agentchat"
 	"github.com/prasenjit-net/api-flow/internal/config"
 	"github.com/prasenjit-net/api-flow/internal/registry"
 	"github.com/prasenjit-net/api-flow/internal/service"
@@ -21,6 +22,7 @@ type Handler struct {
 	registry  *registry.Registry
 	sessions  *sessions.Manager
 	workspace *service.Workspace
+	agent     *agentchat.Service
 }
 
 type metaResponse struct {
@@ -39,6 +41,8 @@ func NewHandler(cfg config.Config, build version.Info, s store.Store, reg *regis
 	}
 	return &Handler{config: cfg, version: build, store: s, registry: reg, sessions: manager, workspace: service.New(cfg, s, reg, manager)}
 }
+
+func (h *Handler) SetAgent(agent *agentchat.Service) { h.agent = agent }
 
 func (h *Handler) Meta(w http.ResponseWriter, r *http.Request) {
 	respondJSON(w, http.StatusOK, metaResponse{
