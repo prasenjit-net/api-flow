@@ -277,7 +277,7 @@ export default function OverviewPage() {
               <section className="rounded-lg border border-slate-200 bg-white shadow-sm dark:border-slate-800 dark:bg-slate-900">
                 <div className="border-b border-slate-200 px-5 py-3.5 dark:border-slate-800">
                   <h2 className="text-sm font-semibold text-slate-800 dark:text-slate-100">Operations by method</h2>
-                  <p className="mt-0.5 text-xs text-slate-500">Distribution across uploaded OpenAPI specs.</p>
+                  <p className="mt-0.5 text-xs text-slate-500 dark:text-slate-400">Distribution across uploaded OpenAPI specs.</p>
                 </div>
                 {methodRows.length === 0 ? (
                   <div className="flex h-40 items-center justify-center text-sm text-slate-400">No operations found.</div>
@@ -319,7 +319,11 @@ export default function OverviewPage() {
                       role="tab"
                       aria-selected={activeMCPGuide.id === guide.id}
                       onClick={() => setActiveMCPClient(guide.id)}
-                      className={`shrink-0 rounded px-3 py-1.5 text-xs font-semibold transition-colors ${activeMCPGuide.id === guide.id ? 'bg-slate-900 text-white dark:bg-slate-100 dark:text-slate-900' : 'text-slate-500 hover:bg-slate-100 dark:text-slate-400 dark:hover:bg-slate-800'}`}
+                      className={`shrink-0 rounded px-3 py-1.5 text-xs font-semibold transition-colors ${
+                        activeMCPGuide.id === guide.id
+                          ? 'bg-blue-600 text-white shadow-sm dark:bg-blue-500 dark:text-white'
+                          : 'border border-transparent text-slate-600 hover:border-slate-200 hover:bg-slate-50 hover:text-slate-900 dark:text-slate-300 dark:hover:border-slate-700 dark:hover:bg-slate-800 dark:hover:text-slate-100'
+                      }`}
                     >
                       {guide.label}
                     </button>
@@ -330,12 +334,12 @@ export default function OverviewPage() {
                     <span className="block font-medium text-slate-700 dark:text-slate-300">Add to {activeMCPGuide.location}</span>
                     <a href={activeMCPGuide.href} target="_blank" rel="noreferrer" className="mt-1 inline-block text-blue-600 hover:underline dark:text-blue-400">Client documentation</a>
                   </div>
-                  <div className="relative min-w-0 overflow-hidden rounded border border-slate-200 bg-slate-950 dark:border-slate-700">
-                    <pre className="overflow-x-auto p-3 pr-12 text-xs leading-5 text-slate-100"><code>{activeMCPGuide.config}</code></pre>
+                  <div className="relative min-w-0 overflow-hidden rounded border border-slate-200 bg-slate-100 dark:border-slate-700 dark:bg-slate-950">
+                    <pre className="overflow-x-auto p-3 pr-12 text-xs leading-5 text-slate-800 dark:text-slate-100"><code>{activeMCPGuide.config}</code></pre>
                     <button
                       type="button"
                       onClick={() => void copyMCPGuide()}
-                      className="absolute right-2 top-2 rounded p-1.5 text-slate-300 hover:bg-white/10 hover:text-white"
+                      className="absolute right-2 top-2 rounded p-1.5 text-slate-500 hover:bg-white hover:text-slate-900 dark:text-slate-300 dark:hover:bg-white/10 dark:hover:text-white"
                       title="Copy configuration"
                       aria-label="Copy configuration"
                     >
