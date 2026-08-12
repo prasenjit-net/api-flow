@@ -91,9 +91,13 @@ const markdownComponents: Components = {
 }
 
 function createId() {
-  return typeof crypto !== 'undefined' && 'randomUUID' in crypto
-    ? crypto.randomUUID()
-    : `${Date.now()}-${Math.random().toString(16).slice(2)}`
+  const browserCrypto = globalThis.crypto
+  if (browserCrypto?.randomUUID) return browserCrypto.randomUUID()
+  if (browserCrypto?.getRandomValues) {
+    const bytes = browserCrypto.getRandomValues(new Uint32Array(4))
+    return `${Date.now()}-${Array.from(bytes, value => value.toString(16).padStart(8, '0')).join('')}`
+  }
+  return `${Date.now()}`
 }
 
 function nowIso() {
