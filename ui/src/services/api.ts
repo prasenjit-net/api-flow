@@ -108,8 +108,26 @@ export const agentApi = {
     if (!response.ok || !response.body) await handle<never>(response)
     const body = response.body
     if (!body) throw new ApiError(0, 'Streaming response is unavailable')
-    const reader = body.getReader(); const decoder = new TextDecoder(); let buffer = ''
-    for (;;) { const { value, done } = await reader.read(); if (done) break; buffer += decoder.decode(value, { stream: true }); const lines = buffer.split('\n'); buffer = lines.pop() ?? ''; for (const line of lines) if (line.startsWith('data: ')) onEvent(JSON.parse(line.slice(6)) as AgentEvent) }
+    const reader = body.getReader()
+    const decoder = new TextDecoder()
+    let buffer = ''
+
+    const handleLine = (line: string) => {
+      if (!line.startsWith('data: ')) return
+      const event = JSON.parse(line.slice(6)) as AgentEvent
+      onEvent(event)
+      if (event.type === 'error') throw new ApiError(0, event.text || 'Agent request failed')
+    }
+
+    for (;;) {
+      const { value, done } = await reader.read()
+      if (done) break
+      buffer += decoder.decode(value, { stream: true })
+      const lines = buffer.split('\n')
+      buffer = lines.pop() ?? ''
+      for (const line of lines) handleLine(line)
+    }
+    if (buffer.trim()) handleLine(buffer.trim())
   },
 }
 

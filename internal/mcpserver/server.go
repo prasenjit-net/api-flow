@@ -375,13 +375,21 @@ type toolRegistry struct {
 }
 
 func (r toolRegistry) registerDesignTools(kind, prefix, asset string, canDelete bool) {
-	mcp.AddTool(r.server, &mcp.Tool{Name: prefix + "_list", Description: "List " + asset + " assets in the selected scope.", Annotations: r.readOnly}, func(_ context.Context, _ *mcp.CallToolRequest, input designScopeInput) (*mcp.CallToolResult, any, error) {
+	listDescription := "List " + asset + " assets in the selected scope."
+	getDescription := "Read one " + asset + " by ID."
+	saveDescription := "Create or update one " + asset + ". Omit id to create; provide id to update. The full replacement payload is required."
+	if kind == "flow" {
+		listDescription = "List operation flows for one specification. Requires specId."
+		getDescription = "Read the flow for one operation. Requires specId and id set to the operationId returned by operation_list."
+		saveDescription = "Create or update the flow for one operation. Requires specId, id set to operationId, and payload as the complete flow JSON: version, specId, operationId, nodes, edges, and viewport."
+	}
+	mcp.AddTool(r.server, &mcp.Tool{Name: prefix + "_list", Description: listDescription, Annotations: r.readOnly}, func(_ context.Context, _ *mcp.CallToolRequest, input designScopeInput) (*mcp.CallToolResult, any, error) {
 		return response(r.workspace.ListDesign(kind, input.SpecID, input.ParentID))
 	})
-	mcp.AddTool(r.server, &mcp.Tool{Name: prefix + "_get", Description: "Read one " + asset + " by ID.", Annotations: r.readOnly}, func(_ context.Context, _ *mcp.CallToolRequest, input designScopeInput) (*mcp.CallToolResult, any, error) {
+	mcp.AddTool(r.server, &mcp.Tool{Name: prefix + "_get", Description: getDescription, Annotations: r.readOnly}, func(_ context.Context, _ *mcp.CallToolRequest, input designScopeInput) (*mcp.CallToolResult, any, error) {
 		return response(r.workspace.GetDesign(kind, input.SpecID, input.ParentID, input.ID))
 	})
-	mcp.AddTool(r.server, &mcp.Tool{Name: prefix + "_save", Description: "Create or update one " + asset + ". Omit id to create; provide id to update. The full replacement payload is required.", Annotations: r.write}, func(_ context.Context, _ *mcp.CallToolRequest, input saveDesignScopeInput) (*mcp.CallToolResult, any, error) {
+	mcp.AddTool(r.server, &mcp.Tool{Name: prefix + "_save", Description: saveDescription, Annotations: r.write}, func(_ context.Context, _ *mcp.CallToolRequest, input saveDesignScopeInput) (*mcp.CallToolResult, any, error) {
 		if result := confirmation(input.Confirm); result != nil {
 			return result, nil, nil
 		}

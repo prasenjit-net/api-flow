@@ -1,9 +1,11 @@
 import { useEffect, useMemo, useState } from 'react'
-import { NavLink, Outlet } from 'react-router-dom'
+import { NavLink, Outlet, useLocation } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 import { Activity, BarChart3, FileJson, FlaskConical, Layers, Menu, Moon, Monitor, Sparkles, Sun, X } from 'lucide-react'
 import clsx from 'clsx'
 import { LogoFull } from './Logo'
+import { AssistantChatProvider } from './assistant/AssistantChatContext'
+import { AssistantChatList } from './assistant/AssistantChatList'
 import { metaApi } from '../services/api'
 
 type ThemeMode = 'light' | 'dark' | 'system'
@@ -36,7 +38,9 @@ const applyTheme = (mode: ThemeMode) => {
 export default function Layout() {
   const [themeMode, setThemeMode] = useState<ThemeMode>(getInitialTheme)
   const [isDrawerOpen, setIsDrawerOpen] = useState(false)
+  const location = useLocation()
   const { data: meta } = useQuery({ queryKey: ['meta'], queryFn: metaApi.get, staleTime: Infinity })
+  const isAssistantRoute = location.pathname.startsWith('/assistant')
 
   useEffect(() => {
     applyTheme(themeMode)
@@ -105,90 +109,98 @@ export default function Layout() {
   )
 
   return (
-    <div className="flex h-screen overflow-hidden bg-gray-50 text-gray-900 dark:bg-slate-950 dark:text-slate-100">
-      {/* Desktop sidebar */}
-      <aside className="hidden h-screen w-64 flex-col border-r border-gray-200 bg-white lg:flex dark:border-slate-800 dark:bg-slate-900">
-        <div className="flex h-16 items-center border-b border-gray-200 px-5 dark:border-slate-800">
-          <LogoFull iconSize={36} title="API Flow" />
-        </div>
-        <nav className="flex-1 overflow-y-auto px-4 py-6">{navLinks}</nav>
-        <div className="mt-auto">
-          <div className="px-4 pb-4">
-            <div className="mb-2 text-xs font-semibold text-gray-500 dark:text-slate-400">Theme</div>
-            {themeToggle}
+    <AssistantChatProvider>
+      <div className="flex h-screen overflow-hidden bg-gray-50 text-gray-900 dark:bg-slate-950 dark:text-slate-100">
+        {/* Desktop sidebar */}
+        <aside className="hidden h-screen w-64 flex-col border-r border-gray-200 bg-white lg:flex dark:border-slate-800 dark:bg-slate-900">
+          <div className="flex h-16 items-center border-b border-gray-200 px-5 dark:border-slate-800">
+            <LogoFull iconSize={36} title="API Flow" />
           </div>
-          <div className="border-t border-gray-200 p-4 dark:border-slate-800">
-            <div className="text-xs text-gray-500 dark:text-slate-400">
-              <p className="font-medium">{meta?.name ?? 'API Flow'}</p>
-              <p>{meta?.description ?? 'API flow visualization tool'}</p>
-            </div>
+          <div className="flex-1 overflow-y-auto">
+            <nav className="px-4 py-6">{navLinks}</nav>
+            {isAssistantRoute && <AssistantChatList />}
           </div>
-        </div>
-      </aside>
-
-      <div className="flex flex-1 flex-col overflow-hidden">
-        {/* Mobile header */}
-        <header className="border-b border-gray-200 bg-white px-4 py-3 lg:hidden dark:border-slate-800 dark:bg-slate-900">
-          <div className="flex items-center justify-between gap-4">
-            <button
-              type="button"
-              onClick={() => setIsDrawerOpen(true)}
-              className="inline-flex h-10 w-10 items-center justify-center rounded-lg border border-gray-200 text-gray-600 transition-colors hover:bg-gray-100 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800"
-              aria-label="Open navigation"
-            >
-              <Menu className="h-5 w-5" />
-            </button>
-            <div className="flex min-w-0 flex-1 justify-center">
-              <LogoFull iconSize={32} title="API Flow" />
-            </div>
-            <div className="h-10 w-10 shrink-0" />
-          </div>
-        </header>
-
-        {/* Mobile overlay */}
-        <div
-          className={clsx(
-            'fixed inset-0 z-40 bg-slate-950/40 backdrop-blur-sm transition-opacity lg:hidden',
-            isDrawerOpen ? 'pointer-events-auto opacity-100' : 'pointer-events-none opacity-0',
-          )}
-          onClick={() => setIsDrawerOpen(false)}
-        />
-
-        {/* Mobile drawer */}
-        <aside
-          className={clsx(
-            'fixed inset-y-0 left-0 z-50 flex w-72 max-w-[85vw] flex-col border-r border-gray-200 bg-white shadow-2xl transition-transform duration-200 ease-out lg:hidden dark:border-slate-800 dark:bg-slate-900',
-            isDrawerOpen ? 'translate-x-0' : '-translate-x-full',
-          )}
-        >
-          <div className="flex h-16 items-center justify-between border-b border-gray-200 px-5 dark:border-slate-800">
-            <LogoFull iconSize={34} title="API Flow" />
-            <button
-              type="button"
-              onClick={() => setIsDrawerOpen(false)}
-              className="inline-flex h-9 w-9 items-center justify-center rounded-lg text-gray-500 hover:bg-gray-100 dark:text-slate-400 dark:hover:bg-slate-800"
-              aria-label="Close navigation"
-            >
-              <X className="h-5 w-5" />
-            </button>
-          </div>
-          <nav className="flex-1 overflow-y-auto px-4 py-6">{navLinks}</nav>
-          <div className="border-t border-gray-200 p-4 dark:border-slate-800">
-            <div className="mb-4">
+          <div className="mt-auto">
+            <div className="px-4 pb-4">
               <div className="mb-2 text-xs font-semibold text-gray-500 dark:text-slate-400">Theme</div>
               {themeToggle}
             </div>
-            <div className="text-xs text-gray-500 dark:text-slate-400">
-              <p className="font-medium">{meta?.name ?? 'API Flow'}</p>
-              <p>{meta?.description ?? 'API flow visualization tool'}</p>
+            <div className="border-t border-gray-200 p-4 dark:border-slate-800">
+              <div className="text-xs text-gray-500 dark:text-slate-400">
+                <p className="font-medium">{meta?.name ?? 'API Flow'}</p>
+                <p>{meta?.description ?? 'API flow visualization tool'}</p>
+              </div>
             </div>
           </div>
         </aside>
 
-        <main className="flex-1 overflow-y-auto">
-          <Outlet />
-        </main>
+        <div className="flex flex-1 flex-col overflow-hidden">
+          {/* Mobile header */}
+          <header className="border-b border-gray-200 bg-white px-4 py-3 lg:hidden dark:border-slate-800 dark:bg-slate-900">
+            <div className="flex items-center justify-between gap-4">
+              <button
+                type="button"
+                onClick={() => setIsDrawerOpen(true)}
+                className="inline-flex h-10 w-10 items-center justify-center rounded-lg border border-gray-200 text-gray-600 transition-colors hover:bg-gray-100 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800"
+                aria-label="Open navigation"
+              >
+                <Menu className="h-5 w-5" />
+              </button>
+              <div className="flex min-w-0 flex-1 justify-center">
+                <LogoFull iconSize={32} title="API Flow" />
+              </div>
+              <div className="h-10 w-10 shrink-0" />
+            </div>
+          </header>
+
+          {/* Mobile overlay */}
+          <div
+            className={clsx(
+              'fixed inset-0 z-40 bg-slate-950/40 backdrop-blur-sm transition-opacity lg:hidden',
+              isDrawerOpen ? 'pointer-events-auto opacity-100' : 'pointer-events-none opacity-0',
+            )}
+            onClick={() => setIsDrawerOpen(false)}
+          />
+
+          {/* Mobile drawer */}
+          <aside
+            className={clsx(
+              'fixed inset-y-0 left-0 z-50 flex w-72 max-w-[85vw] flex-col border-r border-gray-200 bg-white shadow-2xl transition-transform duration-200 ease-out lg:hidden dark:border-slate-800 dark:bg-slate-900',
+              isDrawerOpen ? 'translate-x-0' : '-translate-x-full',
+            )}
+          >
+            <div className="flex h-16 items-center justify-between border-b border-gray-200 px-5 dark:border-slate-800">
+              <LogoFull iconSize={34} title="API Flow" />
+              <button
+                type="button"
+                onClick={() => setIsDrawerOpen(false)}
+                className="inline-flex h-9 w-9 items-center justify-center rounded-lg text-gray-500 hover:bg-gray-100 dark:text-slate-400 dark:hover:bg-slate-800"
+                aria-label="Close navigation"
+              >
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+            <div className="flex-1 overflow-y-auto">
+              <nav className="px-4 py-6">{navLinks}</nav>
+              {isAssistantRoute && <AssistantChatList onSelect={() => setIsDrawerOpen(false)} />}
+            </div>
+            <div className="border-t border-gray-200 p-4 dark:border-slate-800">
+              <div className="mb-4">
+                <div className="mb-2 text-xs font-semibold text-gray-500 dark:text-slate-400">Theme</div>
+                {themeToggle}
+              </div>
+              <div className="text-xs text-gray-500 dark:text-slate-400">
+                <p className="font-medium">{meta?.name ?? 'API Flow'}</p>
+                <p>{meta?.description ?? 'API flow visualization tool'}</p>
+              </div>
+            </div>
+          </aside>
+
+          <main className="flex-1 overflow-y-auto">
+            <Outlet />
+          </main>
+        </div>
       </div>
-    </div>
+    </AssistantChatProvider>
   )
 }
