@@ -5,6 +5,22 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <meta name="description" content="API flow visualization and management tool" />
     <title>API Flow</title>
+    <script>
+      ;(() => {
+        try {
+          const stored = window.localStorage.getItem('api-flow-theme')
+          const mode = stored === 'light' || stored === 'dark' || stored === 'system' ? stored : 'system'
+          const prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches
+          const useDark = mode === 'dark' || (mode === 'system' && prefersDark)
+          const root = document.documentElement
+          root.classList.toggle('dark', useDark)
+          root.style.colorScheme = useDark ? 'dark' : 'light'
+          root.style.backgroundColor = useDark ? '#020617' : '#f8fafc'
+        } catch {
+          document.documentElement.style.backgroundColor = '#f8fafc'
+        }
+      })()
+    </script>
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
   </head>
   <body>

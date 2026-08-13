@@ -28,6 +28,8 @@ export interface OperationInputHints {
 }
 
 export interface SpecDetail extends SpecMeta {
+  meta?: SpecMeta
+  openapi?: string
   operations: Operation[]
 }
 

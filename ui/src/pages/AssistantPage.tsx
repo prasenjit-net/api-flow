@@ -1,4 +1,4 @@
-import { FormEvent, KeyboardEvent, useEffect, useMemo, useRef, useState } from 'react'
+import { FormEvent, KeyboardEvent, useEffect, useRef, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import {
   Bot,
@@ -8,37 +8,27 @@ import {
   Copy,
   FileText,
   LoaderCircle,
-  MessagesSquare,
-  Plus,
   Send,
   Square,
-  Trash2,
   Wrench,
 } from 'lucide-react'
 import Markdown, { type Components } from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import { agentApi, specsApi, type AgentEvent } from '../services/api'
-
-type Message = {
-  id: string
-  role: 'user' | 'assistant'
-  text: string
-  events: AgentEvent[]
-  createdAt: string
-}
-
-type Conversation = {
-  id: string
-  title: string
-  selectedSpecId: string
-  messages: Message[]
-  createdAt: string
-  updatedAt: string
-}
+import {
+  assistantNowIso,
+  createAssistantId,
+  type AssistantConversation,
+  type AssistantMessage,
+  useAssistantChat,
+} from '../components/assistant/assistantChatState'
 
 type ActivityTone = 'info' | 'success' | 'warning' | 'error'
 
-const STORAGE_KEY = 'api-flow-assistant-conversations'
+const MAX_CONTEXT_TURNS = 8
+const MAX_CONTEXT_MESSAGE_CHARS = 1800
+const MAX_OPENAPI_CONTEXT_CHARS = 24000
+const BOTTOM_SCROLL_THRESHOLD_PX = 48
 const MUTATION_TOOL_PATTERNS = [
   /_save$/,
   /_delete$/,
@@ -88,52 +78,6 @@ const markdownComponents: Components = {
       {children}
     </a>
   ),
-}
-
-function createId() {
-  const browserCrypto = globalThis.crypto
-  if (browserCrypto?.randomUUID) return browserCrypto.randomUUID()
-  if (browserCrypto?.getRandomValues) {
-    const bytes = browserCrypto.getRandomValues(new Uint32Array(4))
-    return `${Date.now()}-${Array.from(bytes, value => value.toString(16).padStart(8, '0')).join('')}`
-  }
-  return `${Date.now()}`
-}
-
-function nowIso() {
-  return new Date().toISOString()
-}
-
-function createConversation(): Conversation {
-  const timestamp = nowIso()
-  return {
-    id: createId(),
-    title: 'New chat',
-    selectedSpecId: '',
-    messages: [],
-    createdAt: timestamp,
-    updatedAt: timestamp,
-  }
-}
-
-function loadConversations(): Conversation[] {
-  try {
-    const stored = window.localStorage.getItem(STORAGE_KEY)
-    if (!stored) return [createConversation()]
-    const parsed = JSON.parse(stored) as Conversation[]
-    return Array.isArray(parsed) && parsed.length > 0 ? parsed : [createConversation()]
-  } catch {
-    return [createConversation()]
-  }
-}
-
-function formatTime(value: string) {
-  return new Intl.DateTimeFormat(undefined, {
-    month: 'short',
-    day: 'numeric',
-    hour: 'numeric',
-    minute: '2-digit',
-  }).format(new Date(value))
 }
 
 function formatPayload(value: unknown) {
@@ -191,14 +135,51 @@ function activityDescription(event: AgentEvent) {
   return event.text ?? 'The assistant reported an error.'
 }
 
-function buildPrompt(prompt: string, selectedSpec?: { id: string; name: string; contextPath: string }) {
-  if (!selectedSpec) return prompt
+function trimForContext(text: string) {
+  const compact = text.trim()
+  if (compact.length <= MAX_CONTEXT_MESSAGE_CHARS) return compact
+  return `${compact.slice(0, MAX_CONTEXT_MESSAGE_CHARS)}...`
+}
+
+function buildConversationContext(messages: AssistantMessage[]) {
+  const contextMessages = messages
+    .filter(message => message.text.trim())
+    .slice(-MAX_CONTEXT_TURNS)
+
+  if (contextMessages.length === 0) return ''
+
   return [
-    `Current UI context: specification "${selectedSpec.name}" (${selectedSpec.id}) at ${selectedSpec.contextPath}.`,
-    'Use this specification when the request is ambiguous. The user can still ask about other specifications.',
-    '',
-    prompt,
-  ].join('\n')
+    'Recent conversation context:',
+    ...contextMessages.map(message => `${message.role === 'user' ? 'User' : 'Assistant'}: ${trimForContext(message.text)}`),
+  ].join('\n\n')
+}
+
+function trimOpenAPIForContext(source?: string) {
+  const compact = source?.trim()
+  if (!compact) return ''
+  if (compact.length <= MAX_OPENAPI_CONTEXT_CHARS) return compact
+  return `${compact.slice(0, MAX_OPENAPI_CONTEXT_CHARS)}\n\n... OpenAPI source truncated. Use spec_get for the complete document when needed.`
+}
+
+function buildPrompt(prompt: string, conversation: AssistantConversation, selectedSpec?: { id: string; name: string; contextPath: string }, openapi?: string) {
+  const sections = []
+  if (selectedSpec) {
+    sections.push([
+      `Current UI context: specification "${selectedSpec.name}" (${selectedSpec.id}) at ${selectedSpec.contextPath}.`,
+      'Use this specification when the request is ambiguous. The user can still ask about other specifications.',
+    ].join('\n'))
+  }
+
+  const openapiContext = trimOpenAPIForContext(openapi)
+  if (openapiContext) {
+    sections.push(['Uploaded OpenAPI specification context:', '```yaml', openapiContext, '```'].join('\n'))
+  }
+
+  const conversationContext = buildConversationContext(conversation.messages)
+  if (conversationContext) sections.push(conversationContext)
+
+  sections.push(['Current user message:', prompt].join('\n'))
+  return sections.join('\n\n')
 }
 
 function getTitleFromPrompt(prompt: string) {
@@ -219,17 +200,17 @@ function ActivityCard({ event }: { event: AgentEvent }) {
   const Icon = tone === 'error' ? CircleAlert : tone === 'success' ? Check : Wrench
 
   return (
-    <div className={`rounded-md border px-3 py-2 ${toneClass}`}>
+    <div className={`rounded-md border px-2.5 py-2 ${toneClass}`}>
       <div className="flex min-w-0 items-start gap-2">
-        <Icon className="mt-0.5 h-4 w-4 shrink-0" />
+        <Icon className="mt-0.5 h-3.5 w-3.5 shrink-0" />
         <div className="min-w-0 flex-1">
           <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1">
             <span className="text-xs font-semibold">{activityLabel(event)}</span>
             {event.tool && <span className="truncate font-mono text-[11px] opacity-80">{event.tool}</span>}
           </div>
-          <p className="mt-1 text-xs opacity-80">{activityDescription(event)}</p>
+          <p className="mt-0.5 text-[11px] leading-4 opacity-80">{activityDescription(event)}</p>
           {(isMutationTool(event.tool) || isConfirmationRequired(event)) && (
-            <div className="mt-2 flex flex-wrap gap-1.5">
+            <div className="mt-1.5 flex flex-wrap gap-1">
               <span className="rounded border border-current px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-normal opacity-80">
                 Mutation
               </span>
@@ -241,12 +222,12 @@ function ActivityCard({ event }: { event: AgentEvent }) {
         </div>
       </div>
       {payload && (
-        <details className="mt-2">
-          <summary className="flex cursor-pointer list-none items-center gap-1 text-xs font-medium">
-            <ChevronDown className="h-3.5 w-3.5" />
+        <details className="mt-1.5">
+          <summary className="flex cursor-pointer list-none items-center gap-1 text-[11px] font-medium">
+            <ChevronDown className="h-3 w-3" />
             Payload
           </summary>
-          <pre className="mt-2 max-h-56 overflow-auto rounded border border-black/10 bg-white/80 p-2 text-[11px] leading-5 text-gray-900 dark:border-white/10 dark:bg-slate-950/80 dark:text-slate-100">
+          <pre className="mt-1.5 max-h-48 overflow-auto rounded border border-black/10 bg-white/80 p-2 text-[11px] leading-5 text-gray-900 dark:border-white/10 dark:bg-slate-950/80 dark:text-slate-100">
             {payload}
           </pre>
         </details>
@@ -255,7 +236,7 @@ function ActivityCard({ event }: { event: AgentEvent }) {
   )
 }
 
-function MessageBubble({ message }: { message: Message }) {
+function MessageBubble({ message }: { message: AssistantMessage }) {
   const [copied, setCopied] = useState(false)
 
   const copyMessage = async () => {
@@ -289,13 +270,6 @@ function MessageBubble({ message }: { message: Message }) {
               <span>Thinking</span>
             </div>
           )}
-          {message.events.length > 0 && (
-            <div className="mt-4 space-y-2 border-t border-slate-100 pt-3 dark:border-slate-800">
-              {message.events.map((event, index) => (
-                <ActivityCard key={`${message.id}-${index}`} event={event} />
-              ))}
-            </div>
-          )}
         </div>
         {message.text && (
           <button
@@ -314,54 +288,48 @@ function MessageBubble({ message }: { message: Message }) {
 }
 
 export default function AssistantPage() {
-  const [conversations, setConversations] = useState<Conversation[]>(loadConversations)
-  const [activeId, setActiveId] = useState(conversations[0]?.id ?? '')
+  const { activeConversation, updateConversation } = useAssistantChat()
   const [prompt, setPrompt] = useState('')
   const [running, setRunning] = useState(false)
   const abort = useRef<AbortController>()
   const formRef = useRef<HTMLFormElement>(null)
+  const transcriptRef = useRef<HTMLDivElement>(null)
+  const shouldStickToBottom = useRef(true)
 
   const { data: specs = [] } = useQuery({
     queryKey: ['specs'],
     queryFn: specsApi.list,
   })
 
-  const activeConversation = useMemo(
-    () => conversations.find(conversation => conversation.id === activeId) ?? conversations[0] ?? createConversation(),
-    [activeId, conversations],
-  )
   const selectedSpec = specs.find(spec => spec.id === activeConversation.selectedSpecId)
+  const { data: selectedSpecDetail } = useQuery({
+    queryKey: ['spec', activeConversation.selectedSpecId],
+    queryFn: () => specsApi.get(activeConversation.selectedSpecId),
+    enabled: !!activeConversation.selectedSpecId,
+  })
+  const selectedOpenAPI = selectedSpecDetail?.openapi
   const latestAssistant = [...activeConversation.messages].reverse().find(message => message.role === 'assistant')
   const activityEvents = latestAssistant?.events ?? []
 
   useEffect(() => {
-    window.localStorage.setItem(STORAGE_KEY, JSON.stringify(conversations))
-  }, [conversations])
+    const transcript = transcriptRef.current
+    if (!transcript || !shouldStickToBottom.current) return
+    transcript.scrollTop = transcript.scrollHeight
+  }, [activeConversation.messages])
 
-  const updateConversation = (conversationId: string, updater: (conversation: Conversation) => Conversation) => {
-    setConversations(current => current.map(conversation => (conversation.id === conversationId ? updater(conversation) : conversation)))
+  const handleTranscriptScroll = () => {
+    const transcript = transcriptRef.current
+    if (!transcript) return
+    const distanceFromBottom = transcript.scrollHeight - transcript.scrollTop - transcript.clientHeight
+    shouldStickToBottom.current = distanceFromBottom <= BOTTOM_SCROLL_THRESHOLD_PX
   }
 
   const selectSpec = (specId: string) => {
     updateConversation(activeConversation.id, conversation => ({
       ...conversation,
       selectedSpecId: specId,
-      updatedAt: nowIso(),
+      updatedAt: assistantNowIso(),
     }))
-  }
-
-  const startNewConversation = () => {
-    const next = createConversation()
-    setConversations(current => [next, ...current])
-    setActiveId(next.id)
-    setPrompt('')
-  }
-
-  const deleteConversation = (conversationId: string) => {
-    const remaining = conversations.filter(conversation => conversation.id !== conversationId)
-    const next = remaining.length > 0 ? remaining : [createConversation()]
-    setConversations(next)
-    if (conversationId === activeId) setActiveId(next[0].id)
   }
 
   const sendPrompt = async () => {
@@ -369,10 +337,10 @@ export default function AssistantPage() {
     if (!text || running) return
 
     const conversationId = activeConversation.id
-    const assistantId = createId()
-    const timestamp = nowIso()
-    const userMessage: Message = { id: createId(), role: 'user', text, events: [], createdAt: timestamp }
-    const assistantMessage: Message = { id: assistantId, role: 'assistant', text: '', events: [], createdAt: timestamp }
+    const assistantId = createAssistantId()
+    const timestamp = assistantNowIso()
+    const userMessage: AssistantMessage = { id: createAssistantId(), role: 'user', text, events: [], createdAt: timestamp }
+    const assistantMessage: AssistantMessage = { id: assistantId, role: 'assistant', text: '', events: [], createdAt: timestamp }
 
     setPrompt('')
     updateConversation(conversationId, conversation => ({
@@ -387,7 +355,7 @@ export default function AssistantPage() {
 
     try {
       await agentApi.chat(
-        buildPrompt(text, selectedSpec),
+        buildPrompt(text, activeConversation, selectedSpec, selectedOpenAPI),
         update => {
           updateConversation(conversationId, conversation => ({
             ...conversation,
@@ -397,7 +365,7 @@ export default function AssistantPage() {
                 ? { ...message, text: `${message.text}${update.text ?? ''}` }
                 : { ...message, events: [...message.events, update] }
             }),
-            updatedAt: nowIso(),
+            updatedAt: assistantNowIso(),
           }))
         },
         abort.current.signal,
@@ -410,7 +378,7 @@ export default function AssistantPage() {
             ? { ...message, text: `${message.text}\n\n${error instanceof Error ? error.message : 'Agent request failed'}` }
             : message,
         ),
-        updatedAt: nowIso(),
+        updatedAt: assistantNowIso(),
       }))
     } finally {
       setRunning(false)
@@ -436,50 +404,6 @@ export default function AssistantPage() {
 
   return (
     <div className="flex h-full min-h-0 bg-gray-50 text-gray-900 dark:bg-slate-950 dark:text-slate-100">
-      <aside className="hidden w-72 shrink-0 border-r border-gray-200 bg-white p-3 dark:border-slate-800 dark:bg-slate-900 lg:block">
-        <div className="mb-3 flex items-center justify-between">
-          <div className="flex items-center gap-2 text-sm font-semibold">
-            <MessagesSquare className="h-4 w-4" />
-            Chats
-          </div>
-          <button
-            type="button"
-            onClick={startNewConversation}
-            className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-gray-200 bg-white text-gray-600 hover:bg-gray-50 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-300 dark:hover:bg-slate-800"
-            aria-label="New chat"
-            title="New chat"
-          >
-            <Plus className="h-4 w-4" />
-          </button>
-        </div>
-        <div className="space-y-1 overflow-y-auto">
-          {conversations.map(conversation => (
-            <div
-              key={conversation.id}
-              className={`group flex min-w-0 items-center gap-2 rounded-md px-2 py-2 text-left ${
-                conversation.id === activeConversation.id
-                  ? 'bg-primary-50 text-primary-900 dark:bg-primary-900/30 dark:text-primary-100'
-                  : 'text-gray-700 hover:bg-gray-50 dark:text-slate-300 dark:hover:bg-slate-800'
-              }`}
-            >
-              <button type="button" onClick={() => setActiveId(conversation.id)} className="min-w-0 flex-1 text-left">
-                <div className="truncate text-sm font-medium">{conversation.title}</div>
-                <div className="mt-0.5 text-xs opacity-70">{formatTime(conversation.updatedAt)}</div>
-              </button>
-              <button
-                type="button"
-                onClick={() => deleteConversation(conversation.id)}
-                className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-gray-400 opacity-0 hover:bg-white hover:text-rose-600 group-hover:opacity-100 dark:text-slate-500 dark:hover:bg-slate-950 dark:hover:text-rose-300"
-                aria-label="Delete chat"
-                title="Delete chat"
-              >
-                <Trash2 className="h-3.5 w-3.5" />
-              </button>
-            </div>
-          ))}
-        </div>
-      </aside>
-
       <section className="flex min-w-0 flex-1 flex-col">
         <header className="border-b border-gray-200 bg-white px-4 py-3 dark:border-slate-800 dark:bg-slate-900 sm:px-6">
           <div className="flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
@@ -517,34 +441,11 @@ export default function AssistantPage() {
               )}
             </div>
           </div>
-          <div className="mt-3 flex gap-2 lg:hidden">
-            <select
-              value={activeConversation.id}
-              onChange={event => setActiveId(event.target.value)}
-              className="h-9 min-w-0 flex-1 rounded-md border border-gray-300 bg-white px-3 text-sm text-gray-900 outline-none focus:border-primary-500 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100"
-              aria-label="Select chat"
-            >
-              {conversations.map(conversation => (
-                <option key={conversation.id} value={conversation.id}>
-                  {conversation.title}
-                </option>
-              ))}
-            </select>
-            <button
-              type="button"
-              onClick={startNewConversation}
-              className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-md border border-gray-300 bg-white text-gray-700 hover:bg-gray-50 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-200 dark:hover:bg-slate-800"
-              aria-label="New chat"
-              title="New chat"
-            >
-              <Plus className="h-4 w-4" />
-            </button>
-          </div>
         </header>
 
         <div className="grid min-h-0 flex-1 grid-cols-1 xl:grid-cols-[minmax(0,1fr)_22rem]">
           <main className="flex min-h-0 flex-col">
-            <div className="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto px-4 py-5 sm:px-6">
+            <div ref={transcriptRef} onScroll={handleTranscriptScroll} className="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto px-4 py-5 sm:px-6">
               {activeConversation.messages.length === 0 && (
                 <div className="rounded-md border border-dashed border-gray-300 bg-white p-6 text-sm text-gray-500 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-400">
                   Ask about a specification, flow, template, release, session, trace, or saved test plan.

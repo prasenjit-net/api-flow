@@ -1,0 +1,132 @@
+openapi: 3.0.3
+info:
+  title: Hello World API
+  version: 1.0.0
+  description: |
+    A small example API that accepts a person's name and returns a greeting.
+
+    This specification is intended to be easy to import into API Flow for
+    testing request body mapping, response templates, and error handling.
+  contact:
+    name: API Flow Example
+servers:
+  - url: http://localhost:8080
+    description: Local development server
+tags:
+  - name: Greetings
+    description: Operations for generating personalized greeting messages.
+paths:
+  /greet:
+    post:
+      operationId: createGreeting
+      tags:
+        - Greetings
+      summary: Create a greeting
+      description: |
+        Creates a personalized greeting for the supplied name.
+
+        The request body must include a non-empty `name` value. A successful
+        response returns a generated `greeting` message.
+      requestBody:
+        required: true
+        description: Name information used to build the greeting.
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/GreetRequest'
+            examples:
+              simpleName:
+                summary: Simple name
+                description: A valid request with a single name.
+                value:
+                  name: Prasenjit
+      responses:
+        '200':
+          description: Greeting generated successfully.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GreetResponse'
+              examples:
+                greeting:
+                  summary: Successful greeting
+                  value:
+                    greeting: Hello, Prasenjit!
+        '400':
+          description: The request body is missing required data or contains invalid data.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              examples:
+                missingName:
+                  summary: Missing name
+                  value:
+                    code: BAD_REQUEST
+                    message: The name field is required.
+        '404':
+          description: The greeting endpoint or requested greeting resource was not found.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              examples:
+                notFound:
+                  summary: Greeting target not found
+                  value:
+                    code: NOT_FOUND
+                    message: Greeting resource was not found.
+        '500':
+          description: The server failed while generating the greeting.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              examples:
+                internalError:
+                  summary: Unexpected server error
+                  value:
+                    code: INTERNAL_SERVER_ERROR
+                    message: An unexpected error occurred while creating the greeting.
+components:
+  schemas:
+    GreetRequest:
+      type: object
+      description: Request payload for creating a greeting.
+      required:
+        - name
+      properties:
+        name:
+          type: string
+          description: Name of the person to greet.
+          minLength: 1
+          maxLength: 100
+          example: Prasenjit
+      additionalProperties: false
+    GreetResponse:
+      type: object
+      description: Successful greeting response.
+      required:
+        - greeting
+      properties:
+        greeting:
+          type: string
+          description: Personalized greeting text.
+          example: Hello, Prasenjit!
+      additionalProperties: false
+    ErrorResponse:
+      type: object
+      description: Standard error response returned by the API.
+      required:
+        - code
+        - message
+      properties:
+        code:
+          type: string
+          description: Stable machine-readable error code.
+          example: BAD_REQUEST
+        message:
+          type: string
+          description: Human-readable explanation of the error.
+          example: The name field is required.
+      additionalProperties: false

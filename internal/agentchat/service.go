@@ -2,10 +2,12 @@ package agentchat
 
 import (
 	"context"
+	_ "embed"
 	"encoding/json"
 	"fmt"
 	"io"
 	"os"
+	"time"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 	agent "github.com/prasenjit-net/go-agent"
@@ -24,7 +26,13 @@ type Event struct {
 	Data any    `json:"data,omitempty"`
 }
 
-type Service struct{ agent *agent.Agent }
+type Service struct {
+	agent   *agent.Agent
+	timeout time.Duration
+}
+
+//go:embed system_prompt.md
+var assistantInstructions string
 
 func New(cfg config.AgentConfig, workspace *service.Workspace) (*Service, error) {
 	if !cfg.Enabled {
@@ -51,11 +59,17 @@ func New(cfg config.AgentConfig, workspace *service.Workspace) (*Service, error)
 	for _, tool := range tools.Tools {
 		registered = append(registered, mcpTool{tool: tool, session: session})
 	}
-	base := agent.New(agent.WithProvider(openai.New(os.Getenv(cfg.APIKeyEnv))), agent.WithModel(cfg.Model), agent.WithMaxIterations(cfg.MaxIterations), agent.WithMaxTokens(cfg.MaxTokens), agent.WithTools(registered...))
-	return &Service{agent: base}, nil
+	system := agent.NewSystemPrompt().Add(assistantInstructions)
+	base := agent.New(agent.WithProvider(openai.New(os.Getenv(cfg.APIKeyEnv))), agent.WithModel(cfg.Model), agent.WithSystemPrompt(system), agent.WithMaxIterations(cfg.MaxIterations), agent.WithMaxTokens(cfg.MaxTokens), agent.WithTools(registered...))
+	return &Service{agent: base, timeout: cfg.Timeout}, nil
 }
 
 func (s *Service) Stream(ctx context.Context, prompt string, emit func(Event) error) error {
+	if s.timeout > 0 {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, s.timeout)
+		defer cancel()
+	}
 	stream, err := s.agent.RunStream(ctx, prompt)
 	if err != nil {
 		return err
