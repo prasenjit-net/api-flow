@@ -875,10 +875,6 @@ func writeJSONAtomic(path string, v any) error {
 		_ = os.Remove(tmpPath)
 		return err
 	}
-	if err := os.Chmod(tmpPath, 0o644); err != nil {
-		_ = os.Remove(tmpPath)
-		return err
-	}
 	return os.Rename(tmpPath, path)
 }
 
