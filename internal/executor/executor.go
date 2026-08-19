@@ -15,9 +15,9 @@ import (
 	"time"
 
 	"github.com/getkin/kin-openapi/openapi3"
-	schemavalidator "github.com/prasenjit-net/schema-validator"
 
 	"github.com/prasenjit-net/api-flow/internal/domain"
+	"github.com/prasenjit-net/api-flow/internal/schemavalidation"
 	"github.com/prasenjit-net/api-flow/internal/sessions"
 	"github.com/prasenjit-net/api-flow/internal/store"
 )
@@ -256,13 +256,7 @@ func validationContext(context map[string]any) map[string]any {
 }
 
 func (e *Executor) validateRequestSchema(ctx context.Context, bundle *domain.ReleaseBundle, flow domain.Flow, requestContext map[string]any) (map[string]any, error) {
-	result := map[string]any{
-		"enabled":       true,
-		"valid":         true,
-		"failed":        false,
-		"issues":        []map[string]any{},
-		"scenarioCodes": []string{},
-	}
+	result := schemavalidation.EmptyResult()
 
 	doc, operation, err := e.loadOperationDocument(bundle, flow)
 	if err != nil {
@@ -286,41 +280,11 @@ func (e *Executor) validateRequestSchema(ctx context.Context, bundle *domain.Rel
 		return result, nil
 	}
 
-	schemaData, err := json.Marshal(media.Schema.Value)
-	if err != nil {
-		return nil, fmt.Errorf("marshal request schema: %w", err)
-	}
-	schema, err := schemavalidator.Compile(schemaData, schemavalidator.WithAssertFormats())
-	if err != nil {
-		return nil, fmt.Errorf("compile request schema: %w", err)
-	}
-	bodyData, err := schemaValidationBodyJSON(body)
-	if err != nil {
-		return nil, err
-	}
-	validationResult, err := schema.ValidateJSON(bodyData)
-	if err != nil {
-		return nil, fmt.Errorf("validate request body: %w", err)
-	}
-	if len(validationResult.Violations()) == 0 {
-		return result, nil
-	}
 	settings, err := e.schemaValidationSettings(bundle, flow.SpecID)
 	if err != nil {
 		return nil, err
 	}
-	issues := renderedValidationIssues(newSchemaValidationRenderer(settings).Render(validationResult))
-	scenarioCodes := make([]string, 0, len(issues))
-	for _, issue := range issues {
-		if code, ok := issue["scenarioCode"].(string); ok && code != "" {
-			scenarioCodes = append(scenarioCodes, code)
-		}
-	}
-	result["valid"] = false
-	result["failed"] = true
-	result["issues"] = issues
-	result["scenarioCodes"] = uniqueStrings(scenarioCodes)
-	return result, nil
+	return schemavalidation.ValidateBody(media.Schema.Value, body, settings)
 }
 
 func (e *Executor) schemaValidationSettings(bundle *domain.ReleaseBundle, specID string) (domain.SchemaValidationSettings, error) {
@@ -335,17 +299,6 @@ func (e *Executor) schemaValidationSettings(bundle *domain.ReleaseBundle, specID
 		return domain.SchemaValidationSettings{}, err
 	}
 	return meta.ValidationConfig, nil
-}
-
-func schemaValidationBodyJSON(body any) ([]byte, error) {
-	if body == nil {
-		return []byte("null"), nil
-	}
-	data, err := json.Marshal(body)
-	if err != nil {
-		return nil, fmt.Errorf("marshal request body for schema validation: %w", err)
-	}
-	return data, nil
 }
 
 func (e *Executor) loadOperationDocument(bundle *domain.ReleaseBundle, flow domain.Flow) (*openapi3.T, *openapi3.Operation, error) {
@@ -391,96 +344,6 @@ func selectRequestMediaType(content openapi3.Content, contentType string) string
 	}
 	sort.Strings(mediaTypes)
 	return mediaTypes[0]
-}
-
-func newSchemaValidationRenderer(settings domain.SchemaValidationSettings) *schemavalidator.Renderer {
-	renderer := schemavalidator.NewRenderer(
-		schemavalidator.PathMessages(settings.PathMessages),
-		schemavalidator.FieldMessages(settings.FieldMessages),
-		schemavalidator.SchemaMessages(),
-	)
-	if len(settings.Aliases) > 0 {
-		renderer.Aliases = schemavalidator.NewPathRules(settings.Aliases)
-	}
-	if len(settings.Codes) > 0 {
-		renderer.Codes = schemavalidator.NewPathRules(settings.Codes)
-	}
-	return renderer
-}
-
-func renderedValidationIssues(messages []schemavalidator.Message) []map[string]any {
-	issues := make([]map[string]any, 0, len(messages))
-	for _, msg := range messages {
-		scenarioCode := schemaScenarioCode(string(msg.Code), msg.Path)
-		issue := map[string]any{
-			"code":         string(msg.Code),
-			"path":         msg.Path,
-			"field":        msg.Field,
-			"message":      msg.Message,
-			"params":       msg.Params,
-			"scenarioCode": scenarioCode,
-		}
-		if msg.Value != nil {
-			issue["value"] = msg.Value
-		}
-		if len(msg.Extra) > 0 {
-			issue["extra"] = msg.Extra
-		}
-		issues = append(issues, issue)
-	}
-	return issues
-}
-
-func schemaScenarioCode(code, path string) string {
-	parts := []string{strings.ToUpper(sanitizeScenarioToken(code))}
-	if cleanPath := strings.ToUpper(sanitizeScenarioToken(path)); cleanPath != "" {
-		parts = append(parts, cleanPath)
-	}
-	return strings.Join(parts, "_")
-}
-
-func sanitizeScenarioToken(value string) string {
-	value = strings.TrimSpace(value)
-	var b strings.Builder
-	lastUnderscore := false
-	for _, r := range value {
-		switch {
-		case r >= 'a' && r <= 'z':
-			b.WriteRune(r)
-			lastUnderscore = false
-		case r >= 'A' && r <= 'Z':
-			b.WriteRune(r)
-			lastUnderscore = false
-		case r >= '0' && r <= '9':
-			b.WriteRune(r)
-			lastUnderscore = false
-		default:
-			if !lastUnderscore {
-				b.WriteByte('_')
-				lastUnderscore = true
-			}
-		}
-	}
-	return strings.Trim(b.String(), "_")
-}
-
-func uniqueStrings(values []string) []string {
-	if len(values) == 0 {
-		return []string{}
-	}
-	seen := make(map[string]struct{}, len(values))
-	result := make([]string, 0, len(values))
-	for _, value := range values {
-		if value == "" {
-			continue
-		}
-		if _, exists := seen[value]; exists {
-			continue
-		}
-		seen[value] = struct{}{}
-		result = append(result, value)
-	}
-	return result
 }
 
 type responseCandidate struct {

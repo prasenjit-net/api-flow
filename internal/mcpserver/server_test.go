@@ -24,7 +24,7 @@ func TestServerExposesWorkspaceResourcesAndTools(t *testing.T) { // NOSONAR: int
 	if err := dataStore.SaveSpecMeta(domain.SpecMeta{ID: "widgets", Name: "Widgets", ContextPath: "/widgets"}); err != nil {
 		t.Fatalf("save spec: %v", err)
 	}
-	if err := dataStore.SaveSpecFile("widgets", []byte("openapi: 3.0.3\ninfo:\n  title: Widgets\n  version: '1'\npaths:\n  /widgets:\n    get:\n      summary: List widgets\n      responses:\n        '200':\n          description: OK\n")); err != nil {
+	if err := dataStore.SaveSpecFile("widgets", []byte("openapi: 3.0.3\ninfo:\n  title: Widgets\n  version: '1'\npaths:\n  /widgets:\n    get:\n      summary: List widgets\n      responses:\n        '200':\n          description: OK\n    post:\n      summary: Create widget\n      requestBody:\n        required: true\n        content:\n          application/json:\n            schema:\n              type: object\n              required: [name]\n              properties:\n                name:\n                  type: string\n                  minLength: 2\n      responses:\n        '200':\n          description: OK\n")); err != nil {
 		t.Fatalf("save spec source: %v", err)
 	}
 	workspace := service.New(config.Default(), dataStore, nil, sessions.NewManager(0))
@@ -39,6 +39,7 @@ func TestServerExposesWorkspaceResourcesAndTools(t *testing.T) { // NOSONAR: int
 		"workspace_overview": false, "operation_list": false, "flow_save": false,
 		"template_save": false, "collection_document_save": false, "test_request_save": false,
 		"release_create": false, "release_publish_snapshot": false, "session_persist": false, "trace_get": false,
+		"spec_validation_config_get": false, "spec_validation_config_set": false, "spec_validation_test": false,
 	}
 	for _, tool := range tools.Tools {
 		if _, ok := want[tool.Name]; ok {
@@ -73,6 +74,38 @@ func TestServerExposesWorkspaceResourcesAndTools(t *testing.T) { // NOSONAR: int
 	}
 	if operations.IsError || len(operations.Content) == 0 || !strings.Contains(operations.Content[0].(*mcp.TextContent).Text, "get_widgets") {
 		t.Fatalf("unexpected operation list: %#v", operations)
+	}
+
+	savedConfig, err := clientSession.CallTool(context.Background(), &mcp.CallToolParams{Name: "spec_validation_config_set", Arguments: map[string]any{
+		"specId":  "widgets",
+		"confirm": true,
+		"config": map[string]any{
+			"pathMessages": map[string]any{"/name|required": "Please provide {field}"},
+			"aliases":      map[string]any{"/name": "widget_name"},
+			"codes":        map[string]any{"/name|required": "E_WIDGET_NAME_REQUIRED"},
+		},
+	}})
+	if err != nil {
+		t.Fatalf("set validation config: %v", err)
+	}
+	if savedConfig.IsError || len(savedConfig.Content) == 0 || !strings.Contains(savedConfig.Content[0].(*mcp.TextContent).Text, "E_WIDGET_NAME_REQUIRED") {
+		t.Fatalf("unexpected validation config result: %#v", savedConfig)
+	}
+
+	validation, err := clientSession.CallTool(context.Background(), &mcp.CallToolParams{Name: "spec_validation_test", Arguments: map[string]any{
+		"specId":      "widgets",
+		"operationId": "post_widgets",
+		"body":        map[string]any{},
+	}})
+	if err != nil {
+		t.Fatalf("test schema validation: %v", err)
+	}
+	if validation.IsError || len(validation.Content) == 0 {
+		t.Fatalf("unexpected validation result: %#v", validation)
+	}
+	validationText := validation.Content[0].(*mcp.TextContent).Text
+	if !strings.Contains(validationText, "E_WIDGET_NAME_REQUIRED_WIDGET_NAME") || !strings.Contains(validationText, "Please provide widget_name") {
+		t.Fatalf("validation result did not include translated issue: %s", validationText)
 	}
 }
 

@@ -10,6 +10,7 @@ import (
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
+	"github.com/prasenjit-net/api-flow/internal/domain"
 	"github.com/prasenjit-net/api-flow/internal/service"
 )
 
@@ -183,6 +184,11 @@ type tracingInput struct {
 	Enabled bool   `json:"enabled"`
 	Confirm bool   `json:"confirm" jsonschema:"Set true to apply this configuration change."`
 }
+type validationConfigInput struct {
+	SpecID  string                          `json:"specId"`
+	Config  domain.SchemaValidationSettings `json:"config" jsonschema:"Spec-level schema validation message, alias, and code translation config."`
+	Confirm bool                            `json:"confirm" jsonschema:"Set true to apply this configuration change."`
+}
 type specUpdateInput struct {
 	SpecID      string `json:"specId"`
 	Name        string `json:"name,omitempty" jsonschema:"Optional replacement display name."`
@@ -193,6 +199,12 @@ type specUpdateInput struct {
 type operationInput struct {
 	SpecID      string `json:"specId"`
 	OperationID string `json:"operationId" jsonschema:"The stable operation ID returned by operation_list, such as get:/widgets."`
+}
+type validationTestInput struct {
+	SpecID      string `json:"specId"`
+	OperationID string `json:"operationId" jsonschema:"The stable operation ID returned by operation_list, such as get:/widgets."`
+	ContentType string `json:"contentType,omitempty" jsonschema:"Optional request Content-Type. Defaults to application/json when present in the operation."`
+	Body        any    `json:"body,omitempty" jsonschema:"Sample request body to validate against the operation request schema."`
 }
 type designScopeInput struct {
 	SpecID   string `json:"specId,omitempty" jsonschema:"Required for specification-scoped assets."`
@@ -264,6 +276,15 @@ func registerTools(server *mcp.Server, workspace *service.Workspace) { // NOSONA
 		}
 		return response(workspace.SetTracing(input.SpecID, input.Enabled))
 	})
+	mcp.AddTool(server, &mcp.Tool{Name: "spec_validation_config_get", Description: "Read spec-level schema validation message translation config: path messages, field messages, aliases, and custom codes.", Annotations: readOnly}, func(_ context.Context, _ *mcp.CallToolRequest, input specIDInput) (*mcp.CallToolResult, any, error) {
+		return response(workspace.GetValidationConfig(input.SpecID))
+	})
+	mcp.AddTool(server, &mcp.Tool{Name: "spec_validation_config_set", Description: "Replace spec-level schema validation config. Keys support path rules such as /name|required and field rules such as email|format.", Annotations: write}, func(_ context.Context, _ *mcp.CallToolRequest, input validationConfigInput) (*mcp.CallToolResult, any, error) {
+		if result := confirmation(input.Confirm); result != nil {
+			return result, nil, nil
+		}
+		return response(workspace.SetValidationConfig(input.SpecID, input.Config))
+	})
 	mcp.AddTool(server, &mcp.Tool{Name: "spec_delete", Description: "Permanently delete a specification and all stored assets.", Annotations: destructive}, func(_ context.Context, _ *mcp.CallToolRequest, input tracingInput) (*mcp.CallToolResult, any, error) {
 		if result := confirmation(input.Confirm); result != nil {
 			return result, nil, nil
@@ -279,6 +300,9 @@ func registerTools(server *mcp.Server, workspace *service.Workspace) { // NOSONA
 	})
 	mcp.AddTool(server, &mcp.Tool{Name: "operation_response_examples_list", Description: "Extract response examples declared by one OpenAPI operation. Use these when creating response templates.", Annotations: readOnly}, func(_ context.Context, _ *mcp.CallToolRequest, input operationInput) (*mcp.CallToolResult, any, error) {
 		return response(workspace.ListResponseExamples(input.SpecID, input.OperationID))
+	})
+	mcp.AddTool(server, &mcp.Tool{Name: "spec_validation_test", Description: "Validate a sample request body against one operation's request schema and return rendered messages, aliases, custom codes, and scenario codes.", Annotations: readOnly}, func(_ context.Context, _ *mcp.CallToolRequest, input validationTestInput) (*mcp.CallToolResult, any, error) {
+		return response(workspace.TestSchemaValidation(input.SpecID, input.OperationID, input.ContentType, input.Body))
 	})
 	registry := toolRegistry{server: server, workspace: workspace, readOnly: readOnly, write: write, destructive: destructive}
 	registry.registerDesignTools("flow", "flow", "operation flow", false)
