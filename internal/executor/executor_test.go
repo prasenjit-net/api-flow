@@ -135,6 +135,72 @@ func TestExecuteAppendsStarlarkOutputToContext(t *testing.T) {
 	}
 }
 
+func TestExecuteRoutesAndRendersSchemaValidationFailures(t *testing.T) {
+	dataStore, err := store.New(t.TempDir())
+	if err != nil {
+		t.Fatalf("create store: %v", err)
+	}
+	if err := dataStore.SaveSpecFile("schema-spec", []byte(schemaValidationSpec)); err != nil {
+		t.Fatalf("save spec: %v", err)
+	}
+	if err := dataStore.SaveSpecMeta(domain.SpecMeta{
+		ID:   "schema-spec",
+		Name: "Schema Spec",
+		ValidationConfig: domain.SchemaValidationSettings{
+			PathMessages: map[string]string{"/name|required": "Please provide {field}"},
+			Aliases:      map[string]string{"/name": "customer_name"},
+			Codes:        map[string]string{"/name|required": "E_NAME_REQUIRED"},
+		},
+	}); err != nil {
+		t.Fatalf("save spec meta: %v", err)
+	}
+	for _, responseTemplate := range []domain.Template{
+		{
+			ID:         "ok-template",
+			SpecID:     "schema-spec",
+			StatusCode: http.StatusOK,
+			Body:       `ok {{.request.body.name}}`,
+			Headers:    map[string]string{},
+		},
+		{
+			ID:         "error-template",
+			SpecID:     "schema-spec",
+			StatusCode: http.StatusBadRequest,
+			Body:       `{{index .validation.schema.scenarioCodes 0}}: {{index .validation.schema.issues 0 "message"}}`,
+			Headers:    map[string]string{"X-Validation": `{{index .validation.schema.scenarioCodes 0}}`},
+		},
+	} {
+		if err := dataStore.SaveTemplate("schema-spec", responseTemplate); err != nil {
+			t.Fatalf("save template: %v", err)
+		}
+	}
+
+	flow := schemaValidationFlow()
+	exec := New(dataStore)
+
+	invalidRequest := httptest.NewRequest(http.MethodPost, "/greet", strings.NewReader(`{"age":42}`))
+	invalidRequest.Header.Set("Content-Type", "application/json")
+	invalidResponse := httptest.NewRecorder()
+	exec.Execute(invalidResponse, invalidRequest, flow, nil)
+	if invalidResponse.Code != http.StatusBadRequest {
+		t.Fatalf("expected validation template status 400, got %d: %s", invalidResponse.Code, invalidResponse.Body.String())
+	}
+	if !strings.Contains(invalidResponse.Body.String(), "E_NAME_REQUIRED_CUSTOMER_NAME") || !strings.Contains(invalidResponse.Body.String(), "Please provide customer_name") {
+		t.Fatalf("expected schema scenario code in body, got %q", invalidResponse.Body.String())
+	}
+	if got := invalidResponse.Header().Get("X-Validation"); got != "E_NAME_REQUIRED_CUSTOMER_NAME" {
+		t.Fatalf("expected schema scenario code header, got %q", got)
+	}
+
+	validRequest := httptest.NewRequest(http.MethodPost, "/greet", strings.NewReader(`{"name":"Asha"}`))
+	validRequest.Header.Set("Content-Type", "application/json")
+	validResponse := httptest.NewRecorder()
+	exec.Execute(validResponse, validRequest, flow, nil)
+	if validResponse.Code != http.StatusOK || validResponse.Body.String() != "ok Asha" {
+		t.Fatalf("unexpected valid response: status=%d body=%q", validResponse.Code, validResponse.Body.String())
+	}
+}
+
 func TestDataMapperWritesUseSessionOverlayOnly(t *testing.T) {
 	dataStore, err := store.New(t.TempDir())
 	if err != nil {
@@ -536,6 +602,70 @@ paths:
         '200':
           description: Success without example
 `
+
+const schemaValidationSpec = `openapi: 3.0.3
+info:
+  title: Schema Validation
+  version: 1.0.0
+paths:
+  /greet:
+    post:
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name]
+              properties:
+                name:
+                  type: string
+                age:
+                  type: integer
+      responses:
+        '200':
+          description: OK
+        '400':
+          description: Bad request
+`
+
+func schemaValidationFlow() domain.Flow {
+	return domain.Flow{
+		Version:     domain.CurrentFlowVersion,
+		SpecID:      "schema-spec",
+		OperationID: "post_greet",
+		Nodes: []domain.Node{
+			{
+				ID:   "start",
+				Type: domain.NodeTypeStart,
+				Data: domain.NodeData{
+					Name:             "start",
+					SchemaValidation: &domain.SchemaValidationConfig{Enabled: true},
+				},
+			},
+			{ID: "ok", Type: domain.NodeTypeTemplate, Data: domain.NodeData{Name: "ok-response", TemplateID: "ok-template"}},
+			{ID: "error", Type: domain.NodeTypeTemplate, Data: domain.NodeData{Name: "error-response", TemplateID: "error-template"}},
+			{ID: "end", Type: domain.NodeTypeEnd, Data: domain.NodeData{Name: "end"}},
+		},
+		Edges: []domain.Edge{
+			{
+				ID:       "start-error",
+				Source:   "start",
+				Target:   "error",
+				Priority: 0,
+				Condition: &domain.Condition{
+					Type:     domain.ConditionTypeRule,
+					Source:   "validation.schema.failed",
+					Operator: string(domain.ConditionOperatorEquals),
+					Value:    true,
+				},
+			},
+			{ID: "start-ok", Source: "start", Target: "ok"},
+			{ID: "ok-end", Source: "ok", Target: "end"},
+			{ID: "error-end", Source: "error", Target: "end"},
+		},
+	}
+}
 
 func flowWithoutTemplate(specID, operationID string) domain.Flow {
 	return domain.Flow{

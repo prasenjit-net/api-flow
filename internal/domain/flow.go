@@ -6,7 +6,7 @@ import (
 	"strings"
 )
 
-const CurrentFlowVersion = 4
+const CurrentFlowVersion = 5
 
 var NodeNamePattern = regexp.MustCompile(`^[a-z0-9][a-z0-9_-]{0,63}$`)
 
@@ -64,14 +64,19 @@ type Viewport struct {
 }
 
 type NodeData struct {
-	Mappings      []Mapping `json:"mappings,omitempty"`
-	TemplateID    string    `json:"templateId,omitempty"`
-	ScriptID      string    `json:"scriptId,omitempty"`
-	Name          string    `json:"name"`
-	CollectionID  string    `json:"collectionId,omitempty"`
-	Operation     string    `json:"operation,omitempty"`
-	QueryMappings []Mapping `json:"queryMappings,omitempty"`
-	BodyMappings  []Mapping `json:"bodyMappings,omitempty"`
+	Mappings         []Mapping               `json:"mappings,omitempty"`
+	TemplateID       string                  `json:"templateId,omitempty"`
+	ScriptID         string                  `json:"scriptId,omitempty"`
+	Name             string                  `json:"name"`
+	SchemaValidation *SchemaValidationConfig `json:"schemaValidation,omitempty"`
+	CollectionID     string                  `json:"collectionId,omitempty"`
+	Operation        string                  `json:"operation,omitempty"`
+	QueryMappings    []Mapping               `json:"queryMappings,omitempty"`
+	BodyMappings     []Mapping               `json:"bodyMappings,omitempty"`
+}
+
+type SchemaValidationConfig struct {
+	Enabled bool `json:"enabled"`
 }
 
 type Mapping struct {

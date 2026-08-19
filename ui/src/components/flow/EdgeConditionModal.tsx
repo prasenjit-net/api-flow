@@ -2,10 +2,12 @@ import { useState } from 'react'
 import { Plus, Trash2, X } from 'lucide-react'
 import type { Condition, ConditionOperator, LogicalOperator } from '../../types'
 import { comparisonOperators } from './edgeConditions'
+import type { MappingSourceHint } from './MappingRows'
 
 interface Props {
   condition?: Condition
   priority?: number
+  sourceHints?: MappingSourceHint[]
   onSave: (condition: Condition | undefined, priority: number) => void
   onClose: () => void
 }
@@ -24,10 +26,11 @@ function newGroup(): Condition {
   return { type: 'group', operator: 'and', children: [newRule()] }
 }
 
-export default function EdgeConditionModal({ condition: initial, priority: initialPriority = 0, onSave, onClose }: Props) {
+export default function EdgeConditionModal({ condition: initial, priority: initialPriority = 0, sourceHints = [], onSave, onClose }: Props) {
   const [unconditional, setUnconditional] = useState(!initial)
   const [condition, setCondition] = useState<Condition>(initial ?? newGroup())
   const [priority, setPriority] = useState(initialPriority)
+  const hintListId = 'edge-condition-source-hints'
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/30 p-4 backdrop-blur-[2px]">
@@ -70,7 +73,16 @@ export default function EdgeConditionModal({ condition: initial, priority: initi
                 <span className="mt-1 block text-[11px] text-slate-400">Lower priorities are evaluated first.</span>
               </label>
 
-              <ConditionEditor condition={condition} onChange={setCondition} root />
+              <ConditionEditor condition={condition} onChange={setCondition} sourceHintListId={hintListId} root />
+              {sourceHints.length > 0 && (
+                <datalist id={hintListId}>
+                  {sourceHints.map(hint => (
+                    <option key={hint.value} value={hint.value}>
+                      {hint.group} - {hint.label}
+                    </option>
+                  ))}
+                </datalist>
+              )}
             </>
           )}
         </div>
@@ -99,10 +111,11 @@ interface ConditionEditorProps {
   condition: Condition
   onChange: (condition: Condition) => void
   onRemove?: () => void
+  sourceHintListId?: string
   root?: boolean
 }
 
-function ConditionEditor({ condition, onChange, onRemove, root = false }: ConditionEditorProps) {
+function ConditionEditor({ condition, onChange, onRemove, sourceHintListId, root = false }: ConditionEditorProps) {
   if (condition.type === 'rule') {
     const needsValue = condition.operator !== 'exists' && condition.operator !== 'notExists'
     const valueType = condition.valueType ?? 'string'
@@ -112,6 +125,7 @@ function ConditionEditor({ condition, onChange, onRemove, root = false }: Condit
           value={condition.source}
           onChange={event => onChange({ ...condition, source: event.target.value })}
           placeholder="request.body.status"
+          list={sourceHintListId}
           className="min-w-0 rounded border border-slate-200 bg-slate-50 px-2.5 py-2 font-mono text-xs text-slate-800 focus:border-primary-400 focus:bg-white focus:outline-none focus:ring-1 focus:ring-primary-400 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200"
         />
         <select
@@ -192,6 +206,7 @@ function ConditionEditor({ condition, onChange, onRemove, root = false }: Condit
             condition={child}
             onChange={next => updateChild(index, next)}
             onRemove={() => removeChild(index)}
+            sourceHintListId={sourceHintListId}
           />
         ))}
       </div>

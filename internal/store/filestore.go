@@ -594,6 +594,10 @@ func (s *FileStore) PromoteSnapshot(specID, notes string) (domain.ReleaseBundle,
 }
 
 func (s *FileStore) draftReleaseBundle(specID string, version int, notes string, snapshot bool) (domain.ReleaseBundle, error) {
+	meta, err := s.GetSpecMeta(specID)
+	if err != nil {
+		return domain.ReleaseBundle{}, err
+	}
 	contentHash, err := s.DraftContentHash(specID)
 	if err != nil {
 		return domain.ReleaseBundle{}, err
@@ -622,17 +626,18 @@ func (s *FileStore) draftReleaseBundle(specID string, version int, notes string,
 	}
 
 	return domain.ReleaseBundle{
-		SpecID:      specID,
-		Version:     version,
-		Snapshot:    snapshot,
-		Notes:       strings.TrimSpace(notes),
-		CreatedAt:   time.Now().UTC(),
-		ContentHash: contentHash,
-		SpecRaw:     specRaw,
-		Flows:       flows,
-		Templates:   templates,
-		Scripts:     scripts,
-		Collections: collections,
+		SpecID:           specID,
+		Version:          version,
+		Snapshot:         snapshot,
+		Notes:            strings.TrimSpace(notes),
+		CreatedAt:        time.Now().UTC(),
+		ContentHash:      contentHash,
+		SpecRaw:          specRaw,
+		ValidationConfig: meta.ValidationConfig,
+		Flows:            flows,
+		Templates:        templates,
+		Scripts:          scripts,
+		Collections:      collections,
 	}, nil
 }
 
@@ -756,6 +761,10 @@ func (s *FileStore) GetPublishedSnapshot(specID string) (domain.ReleaseBundle, e
 }
 
 func (s *FileStore) DraftContentHash(specID string) (string, error) {
+	meta, err := s.GetSpecMeta(specID)
+	if err != nil {
+		return "", err
+	}
 	specRaw, err := s.GetSpecFile(specID)
 	if err == ErrNotFound {
 		specRaw = nil
@@ -783,12 +792,13 @@ func (s *FileStore) DraftContentHash(specID string) (string, error) {
 	sortCollections(collections)
 	sortScripts(scripts)
 	payload := struct {
-		SpecRaw     []byte              `json:"specRaw"`
-		Flows       []domain.Flow       `json:"flows"`
-		Templates   []domain.Template   `json:"templates"`
-		Scripts     []domain.Script     `json:"scripts"`
-		Collections []domain.Collection `json:"collections"`
-	}{SpecRaw: specRaw, Flows: flows, Templates: templates, Scripts: scripts, Collections: collections}
+		SpecRaw          []byte                          `json:"specRaw"`
+		ValidationConfig domain.SchemaValidationSettings `json:"validationConfig"`
+		Flows            []domain.Flow                   `json:"flows"`
+		Templates        []domain.Template               `json:"templates"`
+		Scripts          []domain.Script                 `json:"scripts"`
+		Collections      []domain.Collection             `json:"collections"`
+	}{SpecRaw: specRaw, ValidationConfig: meta.ValidationConfig, Flows: flows, Templates: templates, Scripts: scripts, Collections: collections}
 	data, err := json.Marshal(payload)
 	if err != nil {
 		return "", err

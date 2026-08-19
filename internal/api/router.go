@@ -42,6 +42,7 @@ func newRouter(cfg config.Config, logger *slog.Logger, build version.Info, s sto
 			r.Get("/{id}", h.GetSpec)
 			r.Delete("/{id}", h.DeleteSpec)
 			r.Patch("/{id}/tracing", h.UpdateSpecTracing)
+			r.Put("/{id}/validation-config", h.UpdateSpecValidationConfig)
 			r.Get("/{id}/releases", h.ListReleases)
 			r.Post("/{id}/releases", h.CreateRelease)
 			r.Post("/{id}/releases/snapshot/publish", h.PublishSnapshot)

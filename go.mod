@@ -9,6 +9,8 @@ require (
 	github.com/google/uuid v1.6.0
 	github.com/joho/godotenv v1.5.1
 	github.com/modelcontextprotocol/go-sdk v1.7.0
+	github.com/prasenjit-net/go-agent v0.1.1
+	github.com/prasenjit-net/schema-validator v0.1.0
 	github.com/spf13/cobra v1.10.1
 	github.com/spf13/viper v1.21.0
 	go.starlark.net v0.0.0-20260210143700-b62fd896b91b
@@ -24,7 +26,6 @@ require (
 	github.com/oasdiff/yaml3 v0.0.13 // indirect
 	github.com/openai/openai-go/v3 v3.44.0 // indirect
 	github.com/pelletier/go-toml/v2 v2.2.4 // indirect
-	github.com/prasenjit-net/go-agent v0.1.1 // indirect
 	github.com/sagikazarmark/locafero v0.11.0 // indirect
 	github.com/santhosh-tekuri/jsonschema/v6 v6.0.2 // indirect
 	github.com/segmentio/asm v1.1.3 // indirect

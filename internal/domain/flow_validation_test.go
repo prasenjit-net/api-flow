@@ -137,6 +137,20 @@ func TestValidateFlowRequiresScriptOnStarlarkNode(t *testing.T) {
 	}
 }
 
+func TestValidateFlowAcceptsValidationContextConditions(t *testing.T) {
+	flow := validBranchingFlow()
+	flow.Edges[1].Condition = &Condition{
+		Type:     ConditionTypeRule,
+		Source:   "validation.schema.failed",
+		Operator: string(ConditionOperatorEquals),
+		Value:    true,
+	}
+
+	if issues := ValidateFlow(flow); len(issues) != 0 {
+		t.Fatalf("expected validation context condition to be accepted, got %#v", issues)
+	}
+}
+
 func validBranchingFlow() Flow {
 	return Flow{
 		Version: CurrentFlowVersion,

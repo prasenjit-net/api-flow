@@ -1,4 +1,4 @@
-import type { Collection, CollectionDocument, Flow, FlowValidationError, MetaResponse, ReleaseBundle, Script, SessionDetail, SessionPersistSummary, SessionSummary, SpecDetail, SpecMeta, Template, TemplateExample, TestPlan, TestPlanRequest, Trace, TraceSummary } from '../types'
+import type { Collection, CollectionDocument, Flow, FlowValidationError, MetaResponse, ReleaseBundle, SchemaValidationSettings, Script, SessionDetail, SessionPersistSummary, SessionSummary, SpecDetail, SpecMeta, Template, TemplateExample, TestPlan, TestPlanRequest, Trace, TraceSummary } from '../types'
 
 const BASE = import.meta.env.VITE_API_BASE || '/_api'
 const DEFAULT_REQUEST_TIMEOUT_MS = 30000
@@ -140,6 +140,8 @@ export const specsApi = {
     requestVoid(`/specs/${id}`, { method: 'DELETE' }),
   setTracing: (id: string, enabled: boolean) =>
     jsonRequest<SpecMeta>(`/specs/${id}/tracing`, 'PATCH', { enabled }),
+  updateValidationConfig: (id: string, config: SchemaValidationSettings) =>
+    jsonRequest<SpecMeta>(`/specs/${id}/validation-config`, 'PUT', config),
 }
 
 export const releasesApi = {

@@ -1,22 +1,22 @@
 import { useEffect, useState } from 'react'
 import { Link, useParams, useSearchParams } from 'react-router-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { AlertTriangle, Ban, ChevronLeft, GitBranch, CheckCircle2, FileJson, Activity, Play, Rocket, Trash2, X } from 'lucide-react'
+import { AlertTriangle, Ban, ChevronLeft, GitBranch, CheckCircle2, FileJson, Activity, Play, Plus, Rocket, Save, Trash2, X } from 'lucide-react'
 import { collectionsApi, releasesApi, scriptsApi, specsApi, templatesApi } from '../services/api'
 import MethodBadge from '../components/MethodBadge'
-import type { ReleaseBundle } from '../types'
+import type { ReleaseBundle, SchemaValidationSettings } from '../types'
 import { TemplatesPanel } from './TemplatesPage'
 import { CollectionsPanel } from './CollectionsPage'
 import { ScriptsPanel } from './ScriptsPage'
 
-type SpecTab = 'operations' | 'releases' | 'templates' | 'scripts' | 'collections'
+type SpecTab = 'operations' | 'releases' | 'validation' | 'templates' | 'scripts' | 'collections'
 type ReleaseAction =
   | { type: 'publish'; release: ReleaseBundle }
   | { type: 'delete'; release: ReleaseBundle }
   | { type: 'unpublish' }
   | null
 
-const specTabs: SpecTab[] = ['operations', 'releases', 'templates', 'scripts', 'collections']
+const specTabs: SpecTab[] = ['operations', 'releases', 'validation', 'templates', 'scripts', 'collections']
 
 function parseSpecTab(value: string | null): SpecTab {
   return specTabs.includes(value as SpecTab) ? value as SpecTab : 'operations'
@@ -126,6 +126,13 @@ export default function SpecificationDetailPage() {
       qc.invalidateQueries({ queryKey: ['specs'] })
     },
   })
+  const validationConfigMutation = useMutation({
+    mutationFn: (config: SchemaValidationSettings) => specsApi.updateValidationConfig(id!, config),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['specs', id] })
+      qc.invalidateQueries({ queryKey: ['specs'] })
+    },
+  })
   const { data: releases = [], isLoading: releasesLoading } = useQuery({
     queryKey: ['releases', id],
     queryFn: () => releasesApi.list(id!),
@@ -212,6 +219,7 @@ export default function SpecificationDetailPage() {
   const tabs: Array<{ id: SpecTab; label: string; count?: number }> = [
     { id: 'operations', label: 'Operations', count: spec.operations.length },
     { id: 'releases', label: 'Releases', count: releases.filter(release => !release.snapshot).length },
+    { id: 'validation', label: 'Validation', count: validationConfigCount(spec.validationConfig) },
     { id: 'templates', label: 'Templates', count: templates.length },
     { id: 'scripts', label: 'Scripts', count: scripts.length },
     { id: 'collections', label: 'Collections', count: collections.length },
@@ -468,6 +476,14 @@ export default function SpecificationDetailPage() {
         ) : null}
 
         {activeTab === 'templates' && id && <TemplatesPanel specId={id} spec={spec} showHeader={false} />}
+        {activeTab === 'validation' && id && (
+          <ValidationConfigPanel
+            config={spec.validationConfig}
+            isSaving={validationConfigMutation.isPending}
+            error={validationConfigMutation.error instanceof Error ? validationConfigMutation.error.message : ''}
+            onSave={config => validationConfigMutation.mutate(config)}
+          />
+        )}
         {activeTab === 'scripts' && id && <ScriptsPanel specId={id} showHeader={false} />}
         {activeTab === 'collections' && id && <CollectionsPanel specId={id} showHeader={false} />}
       </div>
@@ -489,4 +505,190 @@ export default function SpecificationDetailPage() {
       />
     </div>
   )
+}
+
+type RuleRow = { id: string; key: string; value: string }
+
+function ValidationConfigPanel({
+  config,
+  isSaving,
+  error,
+  onSave,
+}: {
+  config?: SchemaValidationSettings
+  isSaving: boolean
+  error: string
+  onSave: (config: SchemaValidationSettings) => void
+}) {
+  const [pathMessages, setPathMessages] = useState<RuleRow[]>(() => rowsFromMap(config?.pathMessages))
+  const [fieldMessages, setFieldMessages] = useState<RuleRow[]>(() => rowsFromMap(config?.fieldMessages))
+  const [aliases, setAliases] = useState<RuleRow[]>(() => rowsFromMap(config?.aliases))
+  const [codes, setCodes] = useState<RuleRow[]>(() => rowsFromMap(config?.codes))
+
+  useEffect(() => {
+    setPathMessages(rowsFromMap(config?.pathMessages))
+    setFieldMessages(rowsFromMap(config?.fieldMessages))
+    setAliases(rowsFromMap(config?.aliases))
+    setCodes(rowsFromMap(config?.codes))
+  }, [config])
+
+  const save = () => onSave({
+    pathMessages: mapFromRows(pathMessages),
+    fieldMessages: mapFromRows(fieldMessages),
+    aliases: mapFromRows(aliases),
+    codes: mapFromRows(codes),
+  })
+
+  return (
+    <div className="space-y-5 p-4 sm:p-6">
+      <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+        <div>
+          <h2 className="text-sm font-semibold text-slate-800 dark:text-slate-100">Schema validation config</h2>
+          <p className="mt-1 max-w-3xl text-xs leading-5 text-slate-500 dark:text-slate-400">
+            These rules customize schema validation messages, output paths, and response codes for this specification.
+          </p>
+        </div>
+        <button
+          type="button"
+          onClick={save}
+          disabled={isSaving}
+          className="inline-flex w-fit items-center gap-1.5 rounded bg-blue-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-50"
+        >
+          <Save className="h-3.5 w-3.5" />
+          {isSaving ? 'Saving...' : 'Save config'}
+        </button>
+      </div>
+      {error && <div className="rounded border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700 dark:border-red-900/50 dark:bg-red-950/30 dark:text-red-300">{error}</div>}
+      <ValidationRuleTable
+        title="Path messages"
+        description="Match JSON Pointer paths, optionally with |code. Example: /message|min_length."
+        keyLabel="Path rule"
+        valueLabel="Message template"
+        placeholderKey="/message|min_length"
+        placeholderValue="{field} must be at least {limit} characters"
+        rows={pathMessages}
+        onChange={setPathMessages}
+      />
+      <ValidationRuleTable
+        title="Field messages"
+        description="Match a field name wherever it appears, optionally with |code."
+        keyLabel="Field rule"
+        valueLabel="Message template"
+        placeholderKey="email|format"
+        placeholderValue="Enter a valid email address"
+        rows={fieldMessages}
+        onChange={setFieldMessages}
+      />
+      <ValidationRuleTable
+        title="Aliases"
+        description="Translate canonical JSON Pointer paths into API-facing field names."
+        keyLabel="Path rule"
+        valueLabel="Alias"
+        placeholderKey="/delivery/scheduledAt"
+        placeholderValue="scheduled_delivery_time"
+        rows={aliases}
+        onChange={setAliases}
+      />
+      <ValidationRuleTable
+        title="Codes"
+        description="Remap validator codes for a path rule to application-specific error codes."
+        keyLabel="Path rule"
+        valueLabel="Error code"
+        placeholderKey="/recipientId|required"
+        placeholderValue="E_RECIPIENT_REQUIRED"
+        rows={codes}
+        onChange={setCodes}
+      />
+    </div>
+  )
+}
+
+function ValidationRuleTable({
+  title,
+  description,
+  keyLabel,
+  valueLabel,
+  placeholderKey,
+  placeholderValue,
+  rows,
+  onChange,
+}: {
+  title: string
+  description: string
+  keyLabel: string
+  valueLabel: string
+  placeholderKey: string
+  placeholderValue: string
+  rows: RuleRow[]
+  onChange: (rows: RuleRow[]) => void
+}) {
+  const update = (id: string, field: 'key' | 'value', value: string) => {
+    onChange(rows.map(row => row.id === id ? { ...row, [field]: value } : row))
+  }
+  const remove = (id: string) => onChange(rows.filter(row => row.id !== id))
+  const add = () => onChange([...rows, { id: `${Date.now()}-${rows.length}`, key: '', value: '' }])
+
+  return (
+    <section className="rounded-lg border border-slate-200 bg-white dark:border-slate-800 dark:bg-slate-900">
+      <div className="flex flex-col gap-2 border-b border-slate-200 px-4 py-3 dark:border-slate-800 sm:flex-row sm:items-start sm:justify-between">
+        <div>
+          <h3 className="text-sm font-semibold text-slate-800 dark:text-slate-100">{title}</h3>
+          <p className="mt-0.5 text-xs text-slate-500 dark:text-slate-400">{description}</p>
+        </div>
+        <button type="button" onClick={add} className="inline-flex w-fit items-center gap-1.5 rounded border border-slate-200 px-2.5 py-1.5 text-xs font-medium text-slate-600 hover:bg-slate-50 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800">
+          <Plus className="h-3.5 w-3.5" />
+          Add rule
+        </button>
+      </div>
+      <div className="divide-y divide-slate-100 dark:divide-slate-800">
+        <div className="hidden grid-cols-[minmax(0,1fr)_minmax(0,1.4fr)_36px] gap-3 bg-slate-50 px-4 py-2 text-[11px] font-semibold uppercase tracking-wider text-slate-400 dark:bg-slate-950 md:grid">
+          <span>{keyLabel}</span>
+          <span>{valueLabel}</span>
+          <span />
+        </div>
+        {rows.length === 0 ? (
+          <div className="px-4 py-4 text-xs text-slate-400">No rules configured.</div>
+        ) : rows.map(row => (
+          <div key={row.id} className="grid gap-2 px-4 py-3 md:grid-cols-[minmax(0,1fr)_minmax(0,1.4fr)_36px] md:items-center md:gap-3">
+            <input
+              value={row.key}
+              onChange={event => update(row.id, 'key', event.target.value)}
+              placeholder={placeholderKey}
+              className="min-w-0 rounded border border-slate-200 bg-slate-50 px-2.5 py-2 font-mono text-xs text-slate-800 focus:border-blue-400 focus:bg-white focus:outline-none focus:ring-1 focus:ring-blue-400 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200"
+            />
+            <input
+              value={row.value}
+              onChange={event => update(row.id, 'value', event.target.value)}
+              placeholder={placeholderValue}
+              className="min-w-0 rounded border border-slate-200 bg-slate-50 px-2.5 py-2 text-xs text-slate-800 focus:border-blue-400 focus:bg-white focus:outline-none focus:ring-1 focus:ring-blue-400 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200"
+            />
+            <button type="button" onClick={() => remove(row.id)} className="inline-flex h-8 w-8 items-center justify-center rounded text-slate-400 hover:bg-red-50 hover:text-red-500 dark:hover:bg-red-950/30">
+              <Trash2 className="h-3.5 w-3.5" />
+            </button>
+          </div>
+        ))}
+      </div>
+    </section>
+  )
+}
+
+function rowsFromMap(values?: Record<string, string>): RuleRow[] {
+  return Object.entries(values ?? {}).map(([key, value], index) => ({ id: `${key}-${index}`, key, value }))
+}
+
+function mapFromRows(rows: RuleRow[]): Record<string, string> | undefined {
+  const result: Record<string, string> = {}
+  for (const row of rows) {
+    const key = row.key.trim()
+    const value = row.value.trim()
+    if (key && value) result[key] = value
+  }
+  return Object.keys(result).length > 0 ? result : undefined
+}
+
+function validationConfigCount(config?: SchemaValidationSettings): number {
+  return Object.keys(config?.pathMessages ?? {}).length +
+    Object.keys(config?.fieldMessages ?? {}).length +
+    Object.keys(config?.aliases ?? {}).length +
+    Object.keys(config?.codes ?? {}).length
 }
