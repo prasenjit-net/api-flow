@@ -2,6 +2,7 @@ package executor
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -14,6 +15,7 @@ import (
 	"time"
 
 	"github.com/getkin/kin-openapi/openapi3"
+	schemavalidator "github.com/prasenjit-net/schema-validator"
 
 	"github.com/prasenjit-net/api-flow/internal/domain"
 	"github.com/prasenjit-net/api-flow/internal/sessions"
@@ -114,6 +116,10 @@ func (e *Executor) execute(w http.ResponseWriter, r *http.Request, bundle *domai
 	}
 	if startNode == nil {
 		fail(http.StatusInternalServerError, "invalid workflow: start node is missing")
+		return
+	}
+	if err := e.applyStartSchemaValidation(r, bundle, flow, *startNode, ctx); err != nil {
+		fail(http.StatusInternalServerError, fmt.Sprintf("schema validation setup error: %v", err))
 		return
 	}
 
@@ -224,6 +230,257 @@ func (e *Executor) execute(w http.ResponseWriter, r *http.Request, bundle *domai
 		}
 		current = next
 	}
+}
+
+func (e *Executor) applyStartSchemaValidation(r *http.Request, bundle *domain.ReleaseBundle, flow domain.Flow, startNode domain.Node, ctx map[string]any) error {
+	if startNode.Data.SchemaValidation == nil || !startNode.Data.SchemaValidation.Enabled {
+		return nil
+	}
+
+	result, err := e.validateRequestSchema(r.Context(), bundle, flow, ctx)
+	if err != nil {
+		return err
+	}
+	validationContext(ctx)["schema"] = result
+	contextNodes(ctx)[startNode.Data.Name] = map[string]any{"schemaValidation": result}
+	return nil
+}
+
+func validationContext(context map[string]any) map[string]any {
+	validation, ok := context["validation"].(map[string]any)
+	if !ok {
+		validation = map[string]any{}
+		context["validation"] = validation
+	}
+	return validation
+}
+
+func (e *Executor) validateRequestSchema(ctx context.Context, bundle *domain.ReleaseBundle, flow domain.Flow, requestContext map[string]any) (map[string]any, error) {
+	result := map[string]any{
+		"enabled":       true,
+		"valid":         true,
+		"failed":        false,
+		"issues":        []map[string]any{},
+		"scenarioCodes": []string{},
+	}
+
+	doc, operation, err := e.loadOperationDocument(bundle, flow)
+	if err != nil {
+		return nil, err
+	}
+	if doc == nil || operation == nil || operation.RequestBody == nil || operation.RequestBody.Value == nil {
+		return result, nil
+	}
+
+	body, _ := ResolveContextPath(requestContext, "request.body")
+	if body == nil && !operation.RequestBody.Value.Required {
+		return result, nil
+	}
+	contentType, _ := ResolveContextPath(requestContext, "request.headers.content-type")
+	mediaType := selectRequestMediaType(operation.RequestBody.Value.Content, fmt.Sprint(contentType))
+	if mediaType == "" {
+		return result, nil
+	}
+	media := operation.RequestBody.Value.Content.Get(mediaType)
+	if media == nil || media.Schema == nil || media.Schema.Value == nil {
+		return result, nil
+	}
+
+	schemaData, err := json.Marshal(media.Schema.Value)
+	if err != nil {
+		return nil, fmt.Errorf("marshal request schema: %w", err)
+	}
+	schema, err := schemavalidator.Compile(schemaData, schemavalidator.WithAssertFormats())
+	if err != nil {
+		return nil, fmt.Errorf("compile request schema: %w", err)
+	}
+	bodyData, err := schemaValidationBodyJSON(body)
+	if err != nil {
+		return nil, err
+	}
+	validationResult, err := schema.ValidateJSON(bodyData)
+	if err != nil {
+		return nil, fmt.Errorf("validate request body: %w", err)
+	}
+	if len(validationResult.Violations()) == 0 {
+		return result, nil
+	}
+	settings, err := e.schemaValidationSettings(bundle, flow.SpecID)
+	if err != nil {
+		return nil, err
+	}
+	issues := renderedValidationIssues(newSchemaValidationRenderer(settings).Render(validationResult))
+	scenarioCodes := make([]string, 0, len(issues))
+	for _, issue := range issues {
+		if code, ok := issue["scenarioCode"].(string); ok && code != "" {
+			scenarioCodes = append(scenarioCodes, code)
+		}
+	}
+	result["valid"] = false
+	result["failed"] = true
+	result["issues"] = issues
+	result["scenarioCodes"] = uniqueStrings(scenarioCodes)
+	return result, nil
+}
+
+func (e *Executor) schemaValidationSettings(bundle *domain.ReleaseBundle, specID string) (domain.SchemaValidationSettings, error) {
+	if bundle != nil {
+		return bundle.ValidationConfig, nil
+	}
+	meta, err := e.store.GetSpecMeta(specID)
+	if err == store.ErrNotFound {
+		return domain.SchemaValidationSettings{}, nil
+	}
+	if err != nil {
+		return domain.SchemaValidationSettings{}, err
+	}
+	return meta.ValidationConfig, nil
+}
+
+func schemaValidationBodyJSON(body any) ([]byte, error) {
+	if body == nil {
+		return []byte("null"), nil
+	}
+	data, err := json.Marshal(body)
+	if err != nil {
+		return nil, fmt.Errorf("marshal request body for schema validation: %w", err)
+	}
+	return data, nil
+}
+
+func (e *Executor) loadOperationDocument(bundle *domain.ReleaseBundle, flow domain.Flow) (*openapi3.T, *openapi3.Operation, error) {
+	var data []byte
+	if bundle != nil {
+		data = bundle.SpecRaw
+	} else {
+		var err error
+		data, err = e.store.GetSpecFile(flow.SpecID)
+		if err == store.ErrNotFound {
+			return nil, nil, nil
+		}
+		if err != nil {
+			return nil, nil, err
+		}
+	}
+	if len(data) == 0 {
+		return nil, nil, nil
+	}
+	loader := openapi3.NewLoader()
+	loader.IsExternalRefsAllowed = false
+	doc, err := loader.LoadFromData(data)
+	if err != nil {
+		return nil, nil, fmt.Errorf("load OpenAPI spec for schema validation: %w", err)
+	}
+	return doc, findOperation(doc, flow.OperationID), nil
+}
+
+func selectRequestMediaType(content openapi3.Content, contentType string) string {
+	if len(content) == 0 {
+		return ""
+	}
+	contentType = strings.TrimSpace(strings.Split(contentType, ";")[0])
+	if contentType != "" && content.Get(contentType) != nil {
+		return contentType
+	}
+	if content.Get("application/json") != nil {
+		return "application/json"
+	}
+	mediaTypes := make([]string, 0, len(content))
+	for mediaType := range content {
+		mediaTypes = append(mediaTypes, mediaType)
+	}
+	sort.Strings(mediaTypes)
+	return mediaTypes[0]
+}
+
+func newSchemaValidationRenderer(settings domain.SchemaValidationSettings) *schemavalidator.Renderer {
+	renderer := schemavalidator.NewRenderer(
+		schemavalidator.PathMessages(settings.PathMessages),
+		schemavalidator.FieldMessages(settings.FieldMessages),
+		schemavalidator.SchemaMessages(),
+	)
+	if len(settings.Aliases) > 0 {
+		renderer.Aliases = schemavalidator.NewPathRules(settings.Aliases)
+	}
+	if len(settings.Codes) > 0 {
+		renderer.Codes = schemavalidator.NewPathRules(settings.Codes)
+	}
+	return renderer
+}
+
+func renderedValidationIssues(messages []schemavalidator.Message) []map[string]any {
+	issues := make([]map[string]any, 0, len(messages))
+	for _, msg := range messages {
+		scenarioCode := schemaScenarioCode(string(msg.Code), msg.Path)
+		issue := map[string]any{
+			"code":         string(msg.Code),
+			"path":         msg.Path,
+			"field":        msg.Field,
+			"message":      msg.Message,
+			"params":       msg.Params,
+			"scenarioCode": scenarioCode,
+		}
+		if msg.Value != nil {
+			issue["value"] = msg.Value
+		}
+		if len(msg.Extra) > 0 {
+			issue["extra"] = msg.Extra
+		}
+		issues = append(issues, issue)
+	}
+	return issues
+}
+
+func schemaScenarioCode(code, path string) string {
+	parts := []string{strings.ToUpper(sanitizeScenarioToken(code))}
+	if cleanPath := strings.ToUpper(sanitizeScenarioToken(path)); cleanPath != "" {
+		parts = append(parts, cleanPath)
+	}
+	return strings.Join(parts, "_")
+}
+
+func sanitizeScenarioToken(value string) string {
+	value = strings.TrimSpace(value)
+	var b strings.Builder
+	lastUnderscore := false
+	for _, r := range value {
+		switch {
+		case r >= 'a' && r <= 'z':
+			b.WriteRune(r)
+			lastUnderscore = false
+		case r >= 'A' && r <= 'Z':
+			b.WriteRune(r)
+			lastUnderscore = false
+		case r >= '0' && r <= '9':
+			b.WriteRune(r)
+			lastUnderscore = false
+		default:
+			if !lastUnderscore {
+				b.WriteByte('_')
+				lastUnderscore = true
+			}
+		}
+	}
+	return strings.Trim(b.String(), "_")
+}
+
+func uniqueStrings(values []string) []string {
+	if len(values) == 0 {
+		return []string{}
+	}
+	seen := make(map[string]struct{}, len(values))
+	result := make([]string, 0, len(values))
+	for _, value := range values {
+		if value == "" {
+			continue
+		}
+		if _, exists := seen[value]; exists {
+			continue
+		}
+		seen[value] = struct{}{}
+		result = append(result, value)
+	}
+	return result
 }
 
 type responseCandidate struct {

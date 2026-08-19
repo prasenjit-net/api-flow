@@ -196,6 +196,59 @@ func (h *Handler) UpdateSpecTracing(w http.ResponseWriter, r *http.Request) {
 	respondJSON(w, http.StatusOK, meta)
 }
 
+func (h *Handler) UpdateSpecValidationConfig(w http.ResponseWriter, r *http.Request) {
+	id := chi.URLParam(r, "id")
+	meta, err := h.store.GetSpecMeta(id)
+	if err == store.ErrNotFound {
+		respondError(w, r, http.StatusNotFound, "spec not found")
+		return
+	}
+	if err != nil {
+		respondError(w, r, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	var config domain.SchemaValidationSettings
+	if err := json.NewDecoder(r.Body).Decode(&config); err != nil {
+		respondError(w, r, http.StatusBadRequest, "invalid validation config payload")
+		return
+	}
+	meta.ValidationConfig = normalizeSchemaValidationSettings(config)
+	if err := h.store.SaveSpecMeta(meta); err != nil {
+		respondError(w, r, http.StatusInternalServerError, err.Error())
+		return
+	}
+	respondJSON(w, http.StatusOK, meta)
+}
+
+func normalizeSchemaValidationSettings(config domain.SchemaValidationSettings) domain.SchemaValidationSettings {
+	return domain.SchemaValidationSettings{
+		PathMessages:  cleanStringMap(config.PathMessages),
+		FieldMessages: cleanStringMap(config.FieldMessages),
+		Aliases:       cleanStringMap(config.Aliases),
+		Codes:         cleanStringMap(config.Codes),
+	}
+}
+
+func cleanStringMap(input map[string]string) map[string]string {
+	if len(input) == 0 {
+		return nil
+	}
+	result := make(map[string]string, len(input))
+	for key, value := range input {
+		key = strings.TrimSpace(key)
+		value = strings.TrimSpace(value)
+		if key == "" || value == "" {
+			continue
+		}
+		result[key] = value
+	}
+	if len(result) == 0 {
+		return nil
+	}
+	return result
+}
+
 func (h *Handler) parseOperations(specID string) ([]domain.Operation, error) {
 	return h.workspace.ListOperations(specID)
 }

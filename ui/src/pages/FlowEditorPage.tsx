@@ -32,6 +32,7 @@ import StarlarkNodeModal from '../components/flow/StarlarkNodeModal'
 import DataMapperNode from '../components/flow/DataMapperNode'
 import DataMapperNodeModal from '../components/flow/DataMapperNodeModal'
 import EdgeConditionModal from '../components/flow/EdgeConditionModal'
+import StartNodeConfigModal from '../components/flow/StartNodeConfigModal'
 import { summarizeCondition } from '../components/flow/edgeConditions'
 import type { MappingSourceHint } from '../components/flow/MappingRows'
 
@@ -45,6 +46,7 @@ const nodeTypes = {
 }
 
 type EditingNode =
+  | { type: 'start'; id: string; schemaValidation?: { enabled: boolean } }
   | { type: 'contextMapper'; id: string; name: string; mappings: Mapping[] }
   | { type: 'starlark'; id: string; name: string; scriptId: string; mappings: Mapping[] }
   | { type: 'template'; id: string; name: string; templateId: string; mappings: Mapping[] }
@@ -136,9 +138,13 @@ function FlowEditor() {
 
   const [nodes, setNodes, onNodesChange] = useNodesState(defaultNodes)
   const [edges, setEdges, onEdgesChange] = useEdgesState<Edge<FlowEdgeData>>([])
+  const validationHintsEnabled = useMemo(
+    () => nodes.some(node => node.type === 'start' && (node.data as { schemaValidation?: { enabled?: boolean } }).schemaValidation?.enabled),
+    [nodes],
+  )
   const sourceHints = useMemo(
-    () => buildMappingSourceHints(operation, nodes, edges, editingNode?.id),
-    [operation, nodes, edges, editingNode?.id],
+    () => buildMappingSourceHints(operation, nodes, edges, editingNode?.id, validationHintsEnabled),
+    [operation, nodes, edges, editingNode?.id, validationHintsEnabled],
   )
 
   useEffect(() => {
@@ -191,7 +197,10 @@ function FlowEditor() {
   )
 
   const onNodeDoubleClick = useCallback((_: React.MouseEvent, node: Node) => {
-    if (node.type === 'contextMapper') {
+    if (node.type === 'start') {
+      const data = node.data as { schemaValidation?: { enabled: boolean } }
+      setEditingNode({ type: 'start', id: node.id, schemaValidation: data.schemaValidation })
+    } else if (node.type === 'contextMapper') {
       const data = node.data as { name?: string; mappings?: Mapping[] }
       setEditingNode({ type: 'contextMapper', id: node.id, name: data.name ?? '', mappings: data.mappings ?? [] })
     } else if (node.type === 'starlark') {
@@ -263,7 +272,7 @@ function FlowEditor() {
 
   function handleSave() {
     const flow: Flow = {
-      version: 3,
+      version: 5,
       specId: specId!,
       operationId: opId!,
       viewport: getViewport(),
@@ -469,6 +478,17 @@ function FlowEditor() {
           onClose={() => setEditingNode(null)}
         />
       )}
+      {editingNode?.type === 'start' && (
+        <StartNodeConfigModal
+          schemaValidation={editingNode.schemaValidation}
+          operation={operation}
+          onSave={schemaValidation => {
+            updateNodeData(editingNode.id, { schemaValidation })
+            setEditingNode(null)
+          }}
+          onClose={() => setEditingNode(null)}
+        />
+      )}
       {editingNode?.type === 'template' && (
         <TemplateNodeModal
           name={editingNode.name}
@@ -517,6 +537,7 @@ function FlowEditor() {
         <EdgeConditionModal
           condition={editingEdge.condition}
           priority={editingEdge.priority}
+          sourceHints={sourceHints}
           onSave={(condition, priority) => updateEdgeCondition(editingEdge.id, condition, priority)}
           onClose={() => setEditingEdge(null)}
         />
@@ -537,6 +558,7 @@ function buildMappingSourceHints(
   nodes: Node[],
   edges: Edge<FlowEdgeData>[],
   currentNodeId: string | undefined,
+  includeValidationHints: boolean,
 ): MappingSourceHint[] {
   const hints: MappingSourceHint[] = []
   const add = (value: string, label: string, group: string) => {
@@ -552,6 +574,17 @@ function buildMappingSourceHints(
   operation?.inputHints.query?.forEach(name => add(`request.query.${name}`, 'Query parameter', 'Request'))
   operation?.inputHints.headers?.forEach(name => add(`request.headers.${name.toLowerCase()}`, 'Header', 'Request'))
   operation?.inputHints.body?.forEach(path => add(`request.body.${path}`, 'Body field', 'Request'))
+  if (includeValidationHints) {
+    add('validation.schema.valid', 'Schema valid flag', 'Validation')
+    add('validation.schema.failed', 'Schema failed flag', 'Validation')
+    add('validation.schema.issues', 'Schema issues', 'Validation')
+    add('validation.schema.issues.0.code', 'First issue code', 'Validation')
+    add('validation.schema.issues.0.message', 'First issue message', 'Validation')
+    add('validation.schema.issues.0.path', 'First issue path', 'Validation')
+    add('validation.schema.issues.0.scenarioCode', 'First scenario code', 'Validation')
+    add('validation.schema.scenarioCodes', 'Schema scenario codes', 'Validation')
+    add('validation.schema.scenarioCodes.0', 'First schema scenario code', 'Validation')
+  }
 
   const upstream = currentNodeId ? upstreamNodeIds(currentNodeId, edges) : new Set<string>()
   for (const node of nodes) {

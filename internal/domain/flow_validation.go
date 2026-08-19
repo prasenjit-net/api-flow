@@ -43,7 +43,7 @@ func ValidateFlow(flow Flow) []FlowValidationError {
 				NodeID:  node.ID,
 				Field:   "data.name",
 			})
-		} else if name == "request" || name == "nodes" {
+		} else if name == "request" || name == "nodes" || name == "validation" {
 			add(FlowValidationError{Code: "node_name_reserved", Message: fmt.Sprintf("%q is a reserved node name", name), NodeID: node.ID, Field: "data.name"})
 		} else if existing, exists := nodesByName[name]; exists {
 			add(FlowValidationError{
@@ -431,6 +431,10 @@ func validateContextSource(source string, nodesByName map[string]Node) string {
 		if len(parts) < 2 {
 			return "request source must include a field path"
 		}
+	case "validation":
+		if len(parts) < 2 {
+			return "validation source must include a field path"
+		}
 	case "nodes":
 		if len(parts) < 2 || strings.TrimSpace(parts[1]) == "" {
 			return "node source must use nodes.<node-name> or nodes.<node-name>.<output-path>"
@@ -439,7 +443,7 @@ func validateContextSource(source string, nodesByName map[string]Node) string {
 			return fmt.Sprintf("referenced node %q does not exist", parts[1])
 		}
 	default:
-		return "context source must begin with request. or nodes."
+		return "context source must begin with request., validation. or nodes."
 	}
 	return ""
 }

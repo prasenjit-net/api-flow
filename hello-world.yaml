@@ -6,7 +6,8 @@ info:
     A small example API that accepts a person's name and returns a greeting.
 
     This specification is intended to be easy to import into API Flow for
-    testing request body mapping, response templates, and error handling.
+    testing request body mapping, response templates, schema validation, and
+    error handling.
   contact:
     name: API Flow Example
 servers:
@@ -15,6 +16,8 @@ servers:
 tags:
   - name: Greetings
     description: Operations for generating personalized greeting messages.
+  - name: Messages
+    description: Operations for validating and exchanging user messages.
 paths:
   /greet:
     post:
@@ -88,6 +91,103 @@ paths:
                   value:
                     code: INTERNAL_SERVER_ERROR
                     message: An unexpected error occurred while creating the greeting.
+  /messages/exchange:
+    post:
+      operationId: exchangeMessage
+      tags:
+        - Messages
+      summary: Exchange a message
+      description: |
+        Accepts a message exchange request, validates the message envelope, and
+        returns the accepted exchange result.
+
+        This operation intentionally uses a request schema with several JSON
+        Schema validation attributes so API Flow schema validation can be tested
+        against required fields, enums, formats, patterns, arrays, nested
+        objects, and numeric boundaries.
+      requestBody:
+        required: true
+        description: Message envelope and delivery preferences.
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/MessageExchangeRequest'
+            examples:
+              validMessage:
+                summary: Valid message exchange
+                description: A valid request with optional tags, metadata, and delivery controls.
+                value:
+                  senderId: 2e9b6c6d-7f63-4e7f-a7d6-f0bc8b2f0c11
+                  recipientId: support-agent
+                  message: Hello, can you help me with order AF-12345?
+                  channel: chat
+                  priority: normal
+                  sentimentScore: 0.45
+                  tags:
+                    - support
+                    - order
+                  metadata:
+                    orderId: AF-12345
+                    locale: en-US
+                  delivery:
+                    scheduledAt: '2026-08-14T10:30:00Z'
+                    retryCount: 2
+                    notifyRecipient: true
+      responses:
+        '200':
+          description: Message exchange accepted successfully.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MessageExchangeResponse'
+              examples:
+                accepted:
+                  summary: Accepted exchange
+                  value:
+                    exchangeId: msg_01J9Z7VQ9ZQ4X5Q2R2K6G3H5A1
+                    status: accepted
+                    normalizedChannel: chat
+                    receivedAt: '2026-08-14T10:30:05Z'
+                    echo:
+                      senderId: 2e9b6c6d-7f63-4e7f-a7d6-f0bc8b2f0c11
+                      recipientId: support-agent
+                      message: Hello, can you help me with order AF-12345?
+        '400':
+          description: The message exchange request failed schema or business validation.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              examples:
+                invalidMessage:
+                  summary: Invalid message body
+                  value:
+                    code: BAD_REQUEST
+                    message: Message must be between 3 and 500 characters and include a supported channel.
+        '404':
+          description: The recipient or message exchange route was not found.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              examples:
+                recipientNotFound:
+                  summary: Recipient not found
+                  value:
+                    code: NOT_FOUND
+                    message: Recipient was not found.
+        '500':
+          description: The server failed while exchanging the message.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              examples:
+                exchangeFailure:
+                  summary: Exchange failure
+                  value:
+                    code: INTERNAL_SERVER_ERROR
+                    message: An unexpected error occurred while exchanging the message.
 components:
   schemas:
     GreetRequest:
@@ -113,6 +213,195 @@ components:
           type: string
           description: Personalized greeting text.
           example: Hello, Prasenjit!
+      additionalProperties: false
+    MessageExchangeRequest:
+      type: object
+      description: Request payload for exchanging a message between two parties.
+      required:
+        - senderId
+        - recipientId
+        - message
+        - channel
+        - priority
+      properties:
+        senderId:
+          type: string
+          description: UUID of the sender.
+          format: uuid
+          example: 2e9b6c6d-7f63-4e7f-a7d6-f0bc8b2f0c11
+        recipientId:
+          type: string
+          description: Stable recipient identifier.
+          minLength: 3
+          maxLength: 64
+          pattern: '^[a-zA-Z0-9][a-zA-Z0-9_-]{2,63}$'
+          example: support-agent
+        message:
+          type: string
+          description: Message content to exchange.
+          minLength: 3
+          maxLength: 500
+          pattern: '^[\s\S]*\S[\s\S]*$'
+          example: Hello, can you help me with order AF-12345?
+        channel:
+          type: string
+          description: Delivery channel for the message.
+          enum:
+            - chat
+            - email
+            - sms
+            - webhook
+          example: chat
+        priority:
+          type: string
+          description: Delivery priority.
+          enum:
+            - low
+            - normal
+            - high
+            - urgent
+          example: normal
+        sentimentScore:
+          type: number
+          description: Optional sentiment score from -1.0 to 1.0.
+          minimum: -1
+          maximum: 1
+          multipleOf: 0.01
+          example: 0.45
+        tags:
+          type: array
+          description: Optional searchable message tags.
+          minItems: 0
+          maxItems: 5
+          uniqueItems: true
+          items:
+            type: string
+            minLength: 2
+            maxLength: 24
+            pattern: '^[a-z][a-z0-9-]*$'
+          example:
+            - support
+            - order
+        metadata:
+          type: object
+          description: Optional string metadata for routing or correlation.
+          minProperties: 0
+          maxProperties: 8
+          additionalProperties:
+            type: string
+            minLength: 1
+            maxLength: 128
+          example:
+            orderId: AF-12345
+            locale: en-US
+        delivery:
+          $ref: '#/components/schemas/MessageDeliveryOptions'
+        attachments:
+          type: array
+          description: Optional attachment references.
+          maxItems: 3
+          items:
+            $ref: '#/components/schemas/MessageAttachment'
+      additionalProperties: false
+    MessageDeliveryOptions:
+      type: object
+      description: Optional delivery controls for a message exchange.
+      properties:
+        scheduledAt:
+          type: string
+          description: Requested delivery time.
+          format: date-time
+          example: '2026-08-14T10:30:00Z'
+        retryCount:
+          type: integer
+          description: Number of retry attempts when delivery fails.
+          minimum: 0
+          maximum: 5
+          default: 0
+          example: 2
+        notifyRecipient:
+          type: boolean
+          description: Whether recipient notifications should be emitted.
+          default: true
+          example: true
+      additionalProperties: false
+    MessageAttachment:
+      type: object
+      description: Attachment reference included with the message.
+      required:
+        - url
+        - mimeType
+      properties:
+        url:
+          type: string
+          description: Public or internal attachment URL.
+          format: uri
+          maxLength: 2048
+          example: https://example.com/files/invoice.pdf
+        mimeType:
+          type: string
+          description: Attachment MIME type.
+          pattern: '^[a-z]+/[a-z0-9.+-]+$'
+          example: application/pdf
+        sizeBytes:
+          type: integer
+          description: Attachment size in bytes.
+          minimum: 1
+          maximum: 10485760
+          example: 245760
+      additionalProperties: false
+    MessageExchangeResponse:
+      type: object
+      description: Successful message exchange response.
+      required:
+        - exchangeId
+        - status
+        - normalizedChannel
+        - receivedAt
+        - echo
+      properties:
+        exchangeId:
+          type: string
+          description: Server generated exchange identifier.
+          pattern: '^msg_[A-Z0-9]{26}$'
+          example: msg_01J9Z7VQ9ZQ4X5Q2R2K6G3H5A1
+        status:
+          type: string
+          description: Exchange processing status.
+          enum:
+            - accepted
+            - queued
+          example: accepted
+        normalizedChannel:
+          type: string
+          description: Canonical delivery channel selected by the server.
+          enum:
+            - chat
+            - email
+            - sms
+            - webhook
+          example: chat
+        receivedAt:
+          type: string
+          description: Time the exchange was accepted.
+          format: date-time
+          example: '2026-08-14T10:30:05Z'
+        echo:
+          type: object
+          description: Selected request fields echoed for test scenarios.
+          required:
+            - senderId
+            - recipientId
+            - message
+          properties:
+            senderId:
+              type: string
+              format: uuid
+            recipientId:
+              type: string
+            message:
+              type: string
+          additionalProperties: false
       additionalProperties: false
     ErrorResponse:
       type: object

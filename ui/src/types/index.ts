@@ -4,10 +4,18 @@ export interface SpecMeta {
   contextPath: string
   uploadedAt: string
   tracingEnabled: boolean
+  validationConfig: SchemaValidationSettings
   publishedVersion: number
   publishedSnapshot: boolean
   latestVersion: number
   draftDirty: boolean
+}
+
+export interface SchemaValidationSettings {
+  pathMessages?: Record<string, string>
+  fieldMessages?: Record<string, string>
+  aliases?: Record<string, string>
+  codes?: Record<string, string>
 }
 
 export interface Operation {
@@ -186,10 +194,15 @@ export interface NodeData {
   mappings?: Mapping[]
   templateId?: string
   scriptId?: string
+  schemaValidation?: SchemaValidationConfig
   collectionId?: string
   operation?: DataMapperOperation
   queryMappings?: Mapping[]
   bodyMappings?: Mapping[]
+}
+
+export interface SchemaValidationConfig {
+  enabled: boolean
 }
 
 export type LogicalOperator = 'and' | 'or' | 'not'
